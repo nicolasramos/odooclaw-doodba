@@ -40,3 +40,6 @@
 
 # OdooClaw local runtime config
 /odooclaw/config/config.json
+
+# OdooClaw local build artifacts
+/odooclaw/build/
