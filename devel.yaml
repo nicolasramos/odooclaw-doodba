@@ -145,7 +145,7 @@ services:
         www.googleapis.com www.gravatar.com
 networks:
   default:
-    internal: ${DOODBA_NETWORK_INTERNAL-true}
+    internal: ${DOODBA_NETWORK_INTERNAL-false}
   public:
   whitelist:
 
