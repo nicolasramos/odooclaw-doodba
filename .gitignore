@@ -35,6 +35,7 @@
 **/.env.*
 **/*credentials*.json
 **/*token*
+!/odooclaw/pkg/auth/token.go
 **/*.pem
 **/*.key
 
