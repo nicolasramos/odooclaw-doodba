@@ -1,9 +1,8 @@
 import logging
-import threading
-
 import requests
-
-from odoo import _, api, models, tools
+import json
+import threading
+from odoo import models, api, tools, _
 
 _logger = logging.getLogger(__name__)
 
@@ -12,12 +11,12 @@ class MailThread(models.AbstractModel):
     _inherit = "mail.thread"
 
     def _resolve_private_reply_channel(self, author_partner, bot_partner):
-        Channel = self.env["discuss.channel"].sudo()
+        Channel = self.env["mail.channel"].sudo()
         existing = Channel.search(
             [
                 ("channel_type", "=", "chat"),
-                ("channel_member_ids.partner_id", "=", author_partner.id),
-                ("channel_member_ids.partner_id", "=", bot_partner.id),
+                ("channel_partner_ids", "in", [author_partner.id]),
+                ("channel_partner_ids", "in", [bot_partner.id]),
             ],
             limit=1,
         )
@@ -28,16 +27,13 @@ class MailThread(models.AbstractModel):
             {
                 "name": _("Chat with OdooClaw"),
                 "channel_type": "chat",
-                "channel_member_ids": [
-                    (0, 0, {"partner_id": author_partner.id}),
-                    (0, 0, {"partner_id": bot_partner.id}),
-                ],
+                "channel_partner_ids": [(6, 0, [author_partner.id, bot_partner.id])],
             }
         )
 
     @api.returns("mail.message", lambda value: value.id)
     def message_post(self, **kwargs):
-        message = super().message_post(**kwargs)
+        message = super(MailThread, self).message_post(**kwargs)
 
         # Determine if OdooClaw is mentioned or it's a direct message to OdooClaw
         odooclaw_user = self.env.ref(
@@ -55,8 +51,8 @@ class MailThread(models.AbstractModel):
 
         # If it's a channel, check if it's a DM with OdooClaw
         is_dm = False
-        if message.model == "discuss.channel":
-            channel = self.env["discuss.channel"].browse(message.res_id)
+        if message.model == "mail.channel":
+            channel = self.env["mail.channel"].browse(message.res_id)
             if (
                 channel.channel_type == "chat"
                 and odooclaw_partner_id
@@ -79,7 +75,7 @@ class MailThread(models.AbstractModel):
                     name = (att.name or "").lower()
 
                     # Check if it's a voice attachment
-                    if att.voice_ids:
+                    if hasattr(att, "voice_ids") and att.voice_ids:
                         voice_attachments.append(
                             {"id": att.id, "name": att.name, "mimetype": att.mimetype}
                         )
@@ -121,11 +117,11 @@ class MailThread(models.AbstractModel):
                 "attachments": other_attachments,
             }
 
-            if not is_dm and message.model == "discuss.channel":
+            if not is_dm and message.model == "mail.channel":
                 private_channel = self._resolve_private_reply_channel(
                     message.author_id, odooclaw_user.partner_id
                 )
-                payload["reply_model"] = "discuss.channel"
+                payload["reply_model"] = "mail.channel"
                 payload["reply_res_id"] = private_channel.id
 
             # We use threading to not block the current transaction
@@ -135,25 +131,29 @@ class MailThread(models.AbstractModel):
                 .get_param("odooclaw.webhook_url", "http://odooclaw:18790/webhook/odoo")
             )
 
-            def send_webhook(url, data):
+            def send_webhook():
                 try:
-                    headers = {"Content-Type": "application/json"}
-                    requests.post(url, json=data, headers=headers, timeout=5)
-                except Exception as e:
-                    _logger.error("Failed to send webhook to OdooClaw: %s", str(e))
+                    _logger.info("Sending webhook to OdooClaw: %s", webhook_url)
+                    res = requests.post(webhook_url, json=payload, timeout=10)
+                    _logger.info("OdooClaw response: %s", res.text)
+                except Exception:
+                    _logger.exception("Failed to send webhook to OdooClaw")
 
-            threaded_call = threading.Thread(
-                target=send_webhook, args=(webhook_url, payload)
-            )
-            threaded_call.start()
+            threading.Thread(target=send_webhook).start()
 
-            # Trigger "typing..." indicator if it's a discuss channel
-            if message.model == "discuss.channel":
-                channel = self.env["discuss.channel"].browse(message.res_id)
-                bot_member = channel.channel_member_ids.filtered(
-                    lambda m: m.partner_id.id == odooclaw_partner_id
+            # Trigger "typing..." indicator if it's a mail channel
+            if message.model == "mail.channel":
+                channel = self.env["mail.channel"].browse(message.res_id)
+                # In Odoo 16, channel_partner_ids is a many2many to res.partner
+                # We need to find the mail.channel.member record for the bot
+                channel_partner = self.env["mail.channel.member"].search(
+                    [
+                        ("channel_id", "=", channel.id),
+                        ("partner_id", "=", odooclaw_partner_id),
+                    ],
+                    limit=1,
                 )
-                if bot_member:
-                    bot_member.sudo()._notify_typing(is_typing=True)
+                if channel_partner:
+                    channel_partner._notify_typing(is_typing=True)
 
         return message

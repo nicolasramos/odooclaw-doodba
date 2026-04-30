@@ -5,10 +5,7 @@ class ResPartner(models.Model):
     _inherit = "res.partner"
 
     def _compute_im_status(self):
-        """
-        Override to set im_status to 'online' for the OdooClaw bot.
-        It will be shown in general chatter as online.
-        """
+        # Set im_status to 'online' for the OdooClaw bot (shown in chatter as online)
         odooclaw_user = self.env.ref(
             "mail_bot_odooclaw.odooclaw_bot", raise_if_not_found=False
         )
