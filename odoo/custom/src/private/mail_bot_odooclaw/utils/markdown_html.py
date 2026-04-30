@@ -3,7 +3,7 @@ import re
 from urllib.parse import urlparse
 
 
-def markdown_to_safe_html(text):  # noqa: C901
+def markdown_to_safe_html(text):
     content = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     if not content:
         return ""
@@ -26,30 +26,32 @@ def markdown_to_safe_html(text):  # noqa: C901
                 if parts:
                     parts.append("<br />")
                 parts.append(_render_inline(line))
-            blocks.append(f"<p>{''.join(parts)}</p>")
+            blocks.append("<p>%s</p>" % "".join(parts))
             paragraph = []
 
     def flush_bullets():
         nonlocal bullet_items
         if bullet_items:
-            items = "".join(f"<li>{_render_inline(item)}</li>" for item in bullet_items)
-            blocks.append(f"<ul>{items}</ul>")
+            items = "".join(
+                "<li>%s</li>" % _render_inline(item) for item in bullet_items
+            )
+            blocks.append("<ul>%s</ul>" % items)
             bullet_items = []
 
     def flush_ordered():
         nonlocal ordered_items
         if ordered_items:
             items = "".join(
-                f"<li>{_render_inline(item)}</li>" for item in ordered_items
+                "<li>%s</li>" % _render_inline(item) for item in ordered_items
             )
-            blocks.append(f"<ol>{items}</ol>")
+            blocks.append("<ol>%s</ol>" % items)
             ordered_items = []
 
     def flush_quotes():
         nonlocal quote_lines
         if quote_lines:
             rendered = markdown_to_safe_html("\n".join(quote_lines))
-            blocks.append(f"<blockquote>{rendered}</blockquote>")
+            blocks.append("<blockquote>%s</blockquote>" % rendered)
             quote_lines = []
 
     def flush_table():
@@ -64,13 +66,15 @@ def markdown_to_safe_html(text):  # noqa: C901
             return
 
         header, rows = parsed
-        head_html = "".join(f"<th>{_render_inline(cell)}</th>" for cell in header)
+        head_html = "".join("<th>%s</th>" % _render_inline(cell) for cell in header)
         body_html = "".join(
-            f"<tr>{''.join(f'<td>{_render_inline(cell)}</td>' for cell in row)}</tr>"
+            "<tr>%s</tr>"
+            % "".join("<td>%s</td>" % _render_inline(cell) for cell in row)
             for row in rows
         )
         blocks.append(
-            f"<table><thead><tr>{head_html}</tr></thead><tbody>{body_html}</tbody></table>"
+            "<table><thead><tr>%s</tr></thead><tbody>%s</tbody></table>"
+            % (head_html, body_html)
         )
 
     def flush_code_block():
@@ -78,11 +82,11 @@ def markdown_to_safe_html(text):  # noqa: C901
         if code_lines:
             escaped = html.escape("\n".join(code_lines), quote=False)
             class_attr = (
-                f' class="language-{html.escape(code_language, quote=True)}"'
+                ' class="language-%s"' % html.escape(code_language, quote=True)
                 if code_language
                 else ""
             )
-            blocks.append(f"<pre><code{class_attr}>{escaped}</code></pre>")
+            blocks.append("<pre><code%s>%s</code></pre>" % (class_attr, escaped))
             code_lines = []
             code_language = ""
 
@@ -145,8 +149,9 @@ def markdown_to_safe_html(text):  # noqa: C901
         if heading_match:
             flush_non_code()
             level = min(len(heading_match.group(1)), 6)
-            rendered_heading = _render_inline(heading_match.group(2))
-            blocks.append(f"<h{level}>{rendered_heading}</h{level}>")
+            blocks.append(
+                "<h%d>%s</h%d>" % (level, _render_inline(heading_match.group(2)), level)
+            )
             continue
 
         if not stripped:
@@ -163,7 +168,7 @@ def markdown_to_safe_html(text):  # noqa: C901
 
 def _render_inline(text):
     rendered = html.escape(text or "", quote=False)
-    rendered = re.sub(r"`([^`]+)`", lambda m: f"<code>{m.group(1)}</code>", rendered)
+    rendered = re.sub(r"`([^`]+)`", lambda m: "<code>%s</code>" % m.group(1), rendered)
     rendered = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", rendered)
     rendered = re.sub(r"__(.+?)__", r"<strong>\1</strong>", rendered)
     rendered = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"<em>\1</em>", rendered)
@@ -179,8 +184,9 @@ def _render_link(match):
     if parsed.scheme and parsed.scheme not in ("http", "https", "mailto"):
         return label
     safe_href = html.escape(href, quote=True)
-    return (
-        f'<a href="{safe_href}" target="_blank" rel="noopener noreferrer">{label}</a>'
+    return '<a href="%s" target="_blank" rel="noopener noreferrer">%s</a>' % (
+        safe_href,
+        label,
     )
 
 

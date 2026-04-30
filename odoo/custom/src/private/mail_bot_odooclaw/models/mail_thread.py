@@ -12,12 +12,12 @@ class MailThread(models.AbstractModel):
     _inherit = "mail.thread"
 
     def _resolve_private_reply_channel(self, author_partner, bot_partner):
-        Channel = self.env["discuss.channel"].sudo()
+        Channel = self.env["mail.channel"].sudo()
         existing = Channel.search(
             [
                 ("channel_type", "=", "chat"),
-                ("channel_member_ids.partner_id", "=", author_partner.id),
-                ("channel_member_ids.partner_id", "=", bot_partner.id),
+                ("channel_partner_ids", "in", [author_partner.id]),
+                ("channel_partner_ids", "in", [bot_partner.id]),
             ],
             limit=1,
         )
@@ -28,16 +28,13 @@ class MailThread(models.AbstractModel):
             {
                 "name": _("Chat with OdooClaw"),
                 "channel_type": "chat",
-                "channel_member_ids": [
-                    (0, 0, {"partner_id": author_partner.id}),
-                    (0, 0, {"partner_id": bot_partner.id}),
-                ],
+                "channel_partner_ids": [(6, 0, [author_partner.id, bot_partner.id])],
             }
         )
 
     @api.returns("mail.message", lambda value: value.id)
     def message_post(self, **kwargs):
-        message = super().message_post(**kwargs)
+        message = super(MailThread, self).message_post(**kwargs)
 
         # Determine if OdooClaw is mentioned or it's a direct message to OdooClaw
         odooclaw_user = self.env.ref(
@@ -55,12 +52,11 @@ class MailThread(models.AbstractModel):
 
         # If it's a channel, check if it's a DM with OdooClaw
         is_dm = False
-        if message.model == "discuss.channel":
-            channel = self.env["discuss.channel"].browse(message.res_id)
+        if message.model == "mail.channel":
+            channel = self.env["mail.channel"].browse(message.res_id)
             if (
                 channel.channel_type == "chat"
-                and odooclaw_partner_id
-                in channel.channel_member_ids.mapped("partner_id").ids
+                and odooclaw_partner_id in channel.channel_partner_ids.ids
             ):
                 is_dm = True
 
@@ -121,11 +117,11 @@ class MailThread(models.AbstractModel):
                 "attachments": other_attachments,
             }
 
-            if not is_dm and message.model == "discuss.channel":
+            if not is_dm and message.model == "mail.channel":
                 private_channel = self._resolve_private_reply_channel(
                     message.author_id, odooclaw_user.partner_id
                 )
-                payload["reply_model"] = "discuss.channel"
+                payload["reply_model"] = "mail.channel"
                 payload["reply_res_id"] = private_channel.id
 
             # We use threading to not block the current transaction
@@ -146,14 +142,5 @@ class MailThread(models.AbstractModel):
                 target=send_webhook, args=(webhook_url, payload)
             )
             threaded_call.start()
-
-            # Trigger "typing..." indicator if it's a discuss channel
-            if message.model == "discuss.channel":
-                channel = self.env["discuss.channel"].browse(message.res_id)
-                bot_member = channel.channel_member_ids.filtered(
-                    lambda m: m.partner_id.id == odooclaw_partner_id
-                )
-                if bot_member:
-                    bot_member.sudo()._notify_typing(is_typing=True)
 
         return message

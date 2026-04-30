@@ -19,11 +19,11 @@ class OdooClawController(http.Controller):
 
         Expected payload:
         {
-            "model": "discuss.channel",
+            "model": "mail.channel",
             "res_id": 123,
-            "message": "Hello!",  // optional if attachment_ids provided
-            "attachment_ids": [456, 457],  // optional - voice attachment IDs
-            "voice_metadata_ids": [789]  // optional - voice metadata IDs
+            "message": "Hello!",
+            "attachment_ids": [456, 457],
+            "voice_metadata_ids": [789]
         }
         """
         try:
@@ -78,12 +78,16 @@ class OdooClawController(http.Controller):
                 record.with_user(bot_user).message_post(**post_values)
 
                 # Clear typing indicator after replying
-                if model_name == "discuss.channel":
-                    bot_member = record.channel_member_ids.filtered(
-                        lambda m: m.partner_id.id == bot_user.partner_id.id
+                if model_name == "mail.channel":
+                    channel_partner = request.env["mail.channel.partner"].search(
+                        [
+                            ("channel_id", "=", record.id),
+                            ("partner_id", "=", bot_user.partner_id.id),
+                        ],
+                        limit=1,
                     )
-                    if bot_member:
-                        bot_member.sudo()._notify_typing(is_typing=False)
+                    if channel_partner:
+                        channel_partner._notify_typing(is_typing=False)
 
                 return request.make_json_response({"status": "ok"})
 
