@@ -187,6 +187,12 @@ env_anthropic_key = (sys.argv[7] or "").strip()
 with open(config_path, "r", encoding="utf-8") as f:
     cfg = json.load(f)
 
+tools = cfg.setdefault("tools", {})
+mcp = tools.setdefault("mcp", {})
+if not bool(mcp.get("enabled", False)):
+    mcp["enabled"] = True
+    print("[config] Enabled tools.mcp globally (enabled=true)")
+
 agents = cfg.setdefault("agents", {})
 defaults = agents.setdefault("defaults", {})
 model_list = cfg.setdefault("model_list", [])
