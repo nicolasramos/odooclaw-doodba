@@ -11,6 +11,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import datetime
@@ -44,6 +45,11 @@ UID_ENV.update(
         ),
     }
 )
+# Python 3.14+ breaks invoke's stdin handler (fcntl.ioctl FIONREAD buffer
+# overflow).  Using pty=True bypasses the buggy codepath.  Safe on all
+# versions, so we apply it only where needed via this flag.
+_PTY_COMPAT = sys.version_info >= (3, 14)
+
 SERVICES_WAIT_TIME = int(os.environ.get("SERVICES_WAIT_TIME", 4))
 ODOO_VERSION = float(
     yaml.safe_load((PROJECT_ROOT / "common.yaml").read_text())["services"]["odoo"][
@@ -475,6 +481,7 @@ def git_aggregate(c):
         c.run(
             DOCKER_COMPOSE_CMD + " --file setup-devel.yaml run --rm -T odoo",
             env=UID_ENV,
+            pty=_PTY_COMPAT,
         )
     write_code_workspace_file(c)
     for git_folder in SRC_PATH.glob("*/.git/.."):
@@ -773,6 +780,7 @@ def _get_module_dependencies(
             cmd,
             env=UID_ENV,
             hide="stdout",
+            pty=_PTY_COMPAT,
         ).stdout.splitlines()[-1]
     return dependencies
 
@@ -1172,6 +1180,7 @@ def restore_snapshot(
                 " 'SELECT datname FROM pg_database;'",
                 env=UID_ENV,
                 hide="stdout",
+                pty=_PTY_COMPAT,
             )
             db_list = []
             for db in res.stdout.splitlines():
