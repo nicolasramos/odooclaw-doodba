@@ -16,7 +16,7 @@ services:
       INITIAL_LANG: "en_US"
       LIST_DB: "true"
       ODOO_BUS_PUBLIC_SAMESITE_WS: 1
-      PGHOST: odooclaw-odoo-18-0-prod-db
+      PGHOST: odooclaw-odoo-16-0-prod-db
     depends_on:
       - db
     networks:
@@ -29,14 +29,14 @@ services:
       file: common.yaml
       service: db
     environment:
-      DB_HOST: odooclaw-odoo-18-0-prod-db
+      DB_HOST: odooclaw-odoo-16-0-prod-db
     env_file:
       - .docker/db-creation.env
     restart: unless-stopped
     networks:
       default:
         aliases:
-          - "odooclaw-odoo-18-0-prod-db"
+          - "odooclaw-odoo-16-0-prod-db"
 
 networks:
   default:
