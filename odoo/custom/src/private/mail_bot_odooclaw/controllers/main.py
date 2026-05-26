@@ -1,9 +1,7 @@
-import json
-
-from markupsafe import Markup
-
-from odoo import http
+from odoo import http, SUPERUSER_ID
 from odoo.http import request
+import json
+from markupsafe import Markup
 
 from ..utils.markdown_html import markdown_to_safe_html
 

@@ -1,9 +1,8 @@
 import logging
-import threading
-
 import requests
-
-from odoo import _, api, models, tools
+import json
+import threading
+from odoo import models, api, tools, _
 
 _logger = logging.getLogger(__name__)
 
