@@ -4,7 +4,7 @@ services:
       context: ./odoo
       args:
         DB_VERSION: "17"
-        ODOO_VERSION: "18.0"
+        ODOO_VERSION: "17.0"
         UID: "${UID:-1000}"
         GID: "${GID:-1000}"
     environment:
