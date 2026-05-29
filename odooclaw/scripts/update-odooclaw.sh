@@ -138,7 +138,7 @@ echo "  - Allowed update files:  ${#allowed_files[@]}"
 echo "  - Protected skipped files: ${#protected_files[@]}"
 
 if [[ ${#protected_files[@]} -gt 0 ]]; then
-  echo "\nProtected files skipped:"
+  echo "\nProtected files skipped:" 
   printf '  - %s\n' "${protected_files[@]}"
 fi
 

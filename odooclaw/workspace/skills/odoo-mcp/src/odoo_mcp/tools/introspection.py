@@ -1,9 +1,8 @@
-import logging
-from typing import Any
-
+from typing import Any, Dict
 from odoo_mcp.core.client import OdooClient
 from odoo_mcp.core.serializers import serialize_schema
 from odoo_mcp.services.capability_service import get_capabilities
+import logging
 
 _logger = logging.getLogger(__name__)
 
@@ -31,5 +30,5 @@ def odoo_model_schema(client: OdooClient, user_id: int, model: str) -> str:
         return serialize_schema({"error": str(e), "model": model})
 
 
-def odoo_get_capabilities(client: OdooClient, user_id: int) -> dict[str, Any]:
+def odoo_get_capabilities(client: OdooClient, user_id: int) -> Dict[str, Any]:
     return get_capabilities(client, user_id)

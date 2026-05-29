@@ -1,18 +1,15 @@
 # Complete Guide: OdooClaw + Doodba
 
-This guide explains, from start to finish, how to launch OdooClaw inside a Doodba
-project, configure it, modify `config.json`, and validate it works in Odoo Discuss.
+This guide explains, from start to finish, how to launch OdooClaw inside a Doodba project, configure it, modify `config.json`, and validate it works in Odoo Discuss.
 
 ## 1) Prerequisites
 
 You need:
-
 - Docker and Docker Compose working
 - An operational Doodba project
 - Odoo (17/18) running in that project
 - Administrator access to Odoo
-- An API key for a model (OpenAI/OpenRouter/Anthropic, etc.) or a local
-  OpenAI-compatible endpoint
+- An API key for a model (OpenAI/OpenRouter/Anthropic, etc.) or a local OpenAI-compatible endpoint
 
 ## 2) Recommended project structure
 
@@ -45,19 +42,16 @@ odoo/custom/src/private/mail_bot_odooclaw
 ```
 
 Installation in Odoo:
-
 1. Enable developer mode.
 2. Apps → Update apps list.
 3. Search for `OdooClaw` or `mail_bot_odooclaw`.
 4. Install the module.
 
-Upon installation, it creates the bot user and the base system parameter for the
-webhook.
+Upon installation, it creates the bot user and the base system parameter for the webhook.
 
 ## 4) Configure services in `devel.yaml`
 
 Define (or review) these services:
-
 - `odoo`
 - `db`
 - `odooclaw`
@@ -93,7 +87,6 @@ odooclaw:
 ```
 
 Important notes:
-
 - Use uppercase prefix `ODOOCLAW_...` for environment variables.
 - Do not hardcode API keys in `devel.yaml`.
 - In production, use an Odoo API key instead of the admin password.
@@ -141,7 +134,6 @@ Key section:
 ```
 
 Initial recommendation:
-
 - `temperature`: 0.1 - 0.3 for Odoo transactional tasks
 - `max_tool_iterations`: 20-40 depending on tool-call complexity
 
@@ -191,13 +183,10 @@ Must be enabled:
 Review `tools` for MCP, web, cron, skills, and exec.
 
 Practical points:
-
 - Enable global MCP and needed MCP servers
 - Keep `exec.enable_deny_patterns=true` to block dangerous commands
 - Configure `tools.mcp.servers` in `config.json`, not via env for nested structures
-- Prefer generic commands in MCP server definitions (for example `whisper-stt-mcp.py`,
-  `edge-tts-mcp.py`, `python3 -m odoo_mcp.server`) instead of workspace-specific
-  absolute paths
+- Prefer generic commands in MCP server definitions (for example `whisper-stt-mcp.py`, `edge-tts-mcp.py`, `python3 -m odoo_mcp.server`) instead of workspace-specific absolute paths
 
 ## 7) Bring up the stack
 
@@ -218,7 +207,6 @@ docker compose logs -f odoo
 ## 8) Configure webhook in Odoo
 
 In Odoo:
-
 1. Settings → Technical → System Parameters.
 2. Verify (or create) `odooclaw.webhook_url`.
 3. Recommended value on the internal Docker network:
@@ -230,13 +218,11 @@ http://odooclaw:18790/webhook/odoo
 ## 9) Minimal functional validation
 
 In Discuss, open chat with OdooClaw and try:
-
 1. `hola`
 2. `read this excel` with an attached CSV/XLSX
 3. Odoo data queries (invoices, orders, etc.)
 
 Health indicators:
-
 - OdooClaw receives webhook and replies in Discuss
 - No provider authentication errors
 - No Odoo ↔ OdooClaw connection errors
@@ -244,7 +230,6 @@ Health indicators:
 ## 10) How to modify configuration without breaking deployment
 
 Recommended order of changes:
-
 1. Change `config.json` (model, tools, channels).
 2. Change environment variables in `.docker/odoo.env` if applicable.
 3. Rebuild/restart `odooclaw`.
@@ -262,36 +247,30 @@ docker compose logs --since=5m odooclaw
 - Discuss support (operational Q&A)
 - Attachment reading (Excel/CSV)
 - Provider invoice OCR
-- Multi-model Odoo queries via `odoo-mcp` tools (`odoo_search`, `odoo_read`,
-  `odoo_create`, `odoo_write`)
+- Multi-model Odoo queries via `odoo-mcp` tools (`odoo_search`, `odoo_read`, `odoo_create`, `odoo_write`)
 
 ## 12) Common errors and quick fixes
 
 ### No response in Discuss
-
 - Validate `odooclaw.webhook_url`
 - Validate `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`
 - Check `docker compose logs odooclaw`
 
 ### Model/API error
-
 - Validate `OPENAI_API_KEY` or provider key
 - Validate `OPENAI_API_BASE`/local endpoint
 - Ensure `model_name` exists in `model_list`
 
 ### Local endpoint works outside Docker but not inside
-
 - Use `host.docker.internal` instead of `localhost`
 - Confirm port and path `/v1`
 
 ### Tools not executing correctly
-
 - Increase `max_tool_iterations`
 - Lower `temperature`
 - Validate MCP and skills configuration
 
 ## 13) Production recommendations
-
 - Use an Odoo API key, not admin password
 - Do not expose secrets in YAML or repo
 - Pin stable models for tool-calling
@@ -299,7 +278,6 @@ docker compose logs --since=5m odooclaw
 - Keep a rollback procedure for `config.json`
 
 ## 14) Internal references
-
 - `odooclaw/docs/CONFIGURATION.md`
 - `odooclaw/docs/tools_configuration.md`
 - `odoo/custom/src/private/mail_bot_odooclaw/README.md`

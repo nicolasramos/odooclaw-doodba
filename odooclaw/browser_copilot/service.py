@@ -1,25 +1,26 @@
 from __future__ import annotations
 
-import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any
+import secrets
+from typing import Any, Optional
 
 from .detector_odoo import detect_odoo_context
 from .prompts import build_planning_hint
 from .schemas import (
-    ActionTarget,
-    ActionType,
-    BrowserContextResponse,
     BrowserPairingCodeResponse,
     BrowserPairingLinkResponse,
+    BrowserContextResponse,
     BrowserVisibleTable,
+    ActionType,
     PlanResponse,
     SnapshotAnalysis,
     SnapshotElement,
     SnapshotPayload,
     SuggestedAction,
+    ActionTarget,
 )
+
 
 IMPORTANT_FIELD_HINTS = {
     "res.partner": ["name", "email", "phone", "vat"],
@@ -67,7 +68,7 @@ class SnapshotMemory:
         if session_key:
             self.latest_by_session[session_key] = stored
 
-    def latest(self, domain: str) -> SnapshotPayload | None:
+    def latest(self, domain: str) -> Optional[SnapshotPayload]:
         stored = self.latest_by_domain.get(domain)
         if stored is None:
             return None
@@ -76,7 +77,7 @@ class SnapshotMemory:
             return None
         return stored.snapshot
 
-    def resolve(self, channel: str, chat_id: str) -> StoredSnapshot | None:
+    def resolve(self, channel: str, chat_id: str) -> Optional[StoredSnapshot]:
         key = normalize_session_lookup_key(channel, chat_id)
         if not key:
             return None
@@ -106,7 +107,7 @@ class SnapshotMemory:
         self.pairings[code] = record
         return record
 
-    def get_pairing(self, code: str) -> PairingRecord | None:
+    def get_pairing(self, code: str) -> Optional[PairingRecord]:
         self.cleanup_pairings()
         normalized = normalize_pairing_code(code)
         if not normalized:
@@ -197,7 +198,7 @@ def build_visible_tables(snapshot: SnapshotPayload) -> list[BrowserVisibleTable]
 
 
 def build_browser_context_response(
-    stored: StoredSnapshot | None,
+    stored: Optional[StoredSnapshot],
 ) -> BrowserContextResponse:
     if stored is None:
         return BrowserContextResponse(found=False)
@@ -273,7 +274,7 @@ class BrowserCopilotService:
             confidence=confidence,
         )
 
-    def latest_snapshot(self, domain: str) -> SnapshotPayload | None:
+    def latest_snapshot(self, domain: str) -> Optional[SnapshotPayload]:
         return self._memory.latest(domain)
 
     def resolve_context(self, channel: str, chat_id: str) -> BrowserContextResponse:
@@ -327,7 +328,7 @@ class BrowserCopilotService:
         )
 
     def _detect_obvious_issues(
-        self, snapshot: SnapshotPayload, model: str | None
+        self, snapshot: SnapshotPayload, model: Optional[str]
     ) -> list[str]:
         issues: list[str] = []
         required_hints = IMPORTANT_FIELD_HINTS.get(model or "", [])
@@ -427,7 +428,7 @@ class BrowserCopilotService:
 
     def _find_button(
         self, elements: list[SnapshotElement], terms: set[str]
-    ) -> SnapshotElement | None:
+    ) -> Optional[SnapshotElement]:
         for element in elements:
             if element.tag not in {"button", "a"}:
                 continue

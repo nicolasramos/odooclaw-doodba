@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from .schemas import AppDetection, SnapshotPayload
@@ -33,7 +34,7 @@ MODEL_KEYWORDS = {
 }
 
 
-def _detect_view_type(snapshot: SnapshotPayload) -> str | None:
+def _detect_view_type(snapshot: SnapshotPayload) -> Optional[str]:
     """Detecta el tipo de vista basado en clases CSS y elementos visibles."""
     haystack = " ".join(
         [
@@ -71,7 +72,7 @@ def _detect_view_type(snapshot: SnapshotPayload) -> str | None:
     return None
 
 
-def _extract_model_and_id_from_url(url: str) -> tuple[str | None, int | None]:
+def _extract_model_and_id_from_url(url: str) -> Tuple[Optional[str], Optional[int]]:
     """Extrae modelo e ID de la URL, buscando en fragmento y query string."""
     parsed = urlparse(url)
 
@@ -106,7 +107,7 @@ def _extract_model_and_id_from_url(url: str) -> tuple[str | None, int | None]:
     return model, record_id
 
 
-def _infer_model_from_content(snapshot: SnapshotPayload) -> str | None:
+def _infer_model_from_content(snapshot: SnapshotPayload) -> Optional[str]:
     """Infiere el modelo basado en texto visible, botones y breadcrumbs."""
     # Combinar todo el texto visible
     text_content = " ".join(
@@ -154,7 +155,7 @@ def _infer_model_from_content(snapshot: SnapshotPayload) -> str | None:
     return max(scores.items(), key=lambda x: x[1])[0]
 
 
-def _extract_record_id_from_content(snapshot: SnapshotPayload) -> int | None:
+def _extract_record_id_from_content(snapshot: SnapshotPayload) -> Optional[int]:
     """Intenta extraer el ID del registro desde el contenido visible."""
     # Buscar patrones como "S00026", "INV/2024/001", etc.
     text_to_search = " ".join(

@@ -14,7 +14,7 @@ services:
       - ../config/config.json:/root/.odooclaw/config.json:ro
       - odooclaw-workspace:/root/.odooclaw/workspace
       - odooclaw-npm-cache:/root/.npm # npm cache for faster MCP server installs
-    entrypoint: ["odooclaw", "agent"]
+    entrypoint: [ "odooclaw", "agent" ]
     stdin_open: true
     tty: true
 
@@ -37,7 +37,7 @@ services:
       - odooclaw-workspace:/root/.odooclaw/workspace
       # NPM cache for faster MCP server installs
       - odooclaw-npm-cache:/root/.npm
-    command: ["gateway"]
+    command: [ "gateway" ]
 
 volumes:
   odooclaw-workspace:

@@ -1,19 +1,12 @@
 ---
 name: tmux
-description:
-  Remote-control tmux sessions for interactive CLIs by sending keystrokes and scraping
-  pane output.
-metadata:
-  {
-    "nanobot":
-      {"emoji": "🧵", "os": ["darwin", "linux"], "requires": {"bins": ["tmux"]}},
-  }
+description: Remote-control tmux sessions for interactive CLIs by sending keystrokes and scraping pane output.
+metadata: {"nanobot":{"emoji":"🧵","os":["darwin","linux"],"requires":{"bins":["tmux"]}}}
 ---
 
 # tmux Skill
 
-Use tmux only when you need an interactive TTY. Prefer exec background mode for
-long-running, non-interactive tasks.
+Use tmux only when you need an interactive TTY. Prefer exec background mode for long-running, non-interactive tasks.
 
 ## Quickstart (isolated socket, exec tool)
 
@@ -50,8 +43,7 @@ To monitor:
 ## Finding sessions
 
 - List sessions on your socket: `{baseDir}/scripts/find-sessions.sh -S "$SOCKET"`.
-- Scan all sockets: `{baseDir}/scripts/find-sessions.sh --all` (uses
-  `NANOBOT_TMUX_SOCKET_DIR`).
+- Scan all sockets: `{baseDir}/scripts/find-sessions.sh --all` (uses `NANOBOT_TMUX_SOCKET_DIR`).
 
 ## Sending input safely
 
@@ -103,7 +95,6 @@ tmux -S "$SOCKET" capture-pane -p -t agent-1 -S -500
 ```
 
 **Tips:**
-
 - Use separate git worktrees for parallel fixes (no branch conflicts)
 - `pnpm install` first before running codex in fresh clones
 - Check for shell prompt (`❯` or `$`) to detect completion
@@ -112,14 +103,12 @@ tmux -S "$SOCKET" capture-pane -p -t agent-1 -S -500
 ## Cleanup
 
 - Kill a session: `tmux -S "$SOCKET" kill-session -t "$SESSION"`.
-- Kill all sessions on a socket:
-  `tmux -S "$SOCKET" list-sessions -F '#{session_name}' | xargs -r -n1 tmux -S "$SOCKET" kill-session -t`.
+- Kill all sessions on a socket: `tmux -S "$SOCKET" list-sessions -F '#{session_name}' | xargs -r -n1 tmux -S "$SOCKET" kill-session -t`.
 - Remove everything on the private socket: `tmux -S "$SOCKET" kill-server`.
 
 ## Helper: wait-for-text.sh
 
-`{baseDir}/scripts/wait-for-text.sh` polls a pane for a regex (or fixed string) with a
-timeout.
+`{baseDir}/scripts/wait-for-text.sh` polls a pane for a regex (or fixed string) with a timeout.
 
 ```bash
 {baseDir}/scripts/wait-for-text.sh -t session:0.0 -p 'pattern' [-F] [-T 20] [-i 0.5] [-l 2000]

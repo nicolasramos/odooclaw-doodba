@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 
@@ -10,12 +11,12 @@ from .schemas import (
     ActionRequest,
     ActionResponse,
     BackendSettings,
-    BrowserContextResolveRequest,
-    BrowserContextResponse,
     BrowserPairingCodeResponse,
     BrowserPairingCreateRequest,
     BrowserPairingLinkRequest,
     BrowserPairingLinkResponse,
+    BrowserContextResolveRequest,
+    BrowserContextResponse,
     HealthResponse,
     PlanRequest,
     PlanResponse,
@@ -44,7 +45,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="OdooClaw Browser Copilot", version="0.1.0")
 
     def _check_token(
-        x_browser_copilot_token: str | None = Header(default=None),
+        x_browser_copilot_token: Optional[str] = Header(default=None),
     ) -> None:
         if not require_token(settings.token, x_browser_copilot_token):
             raise HTTPException(

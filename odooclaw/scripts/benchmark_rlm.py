@@ -6,8 +6,10 @@ import re
 import statistics
 import time
 from dataclasses import dataclass
+from typing import Dict, List, Tuple
 
 import requests
+
 
 PARTNERS = [
     "Acme",
@@ -80,7 +82,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def make_records(size: int, seed: int) -> list[dict]:
+def make_records(size: int, seed: int) -> List[Dict]:
     rnd = random.Random(seed + size)
     out = []
     for i in range(size):
@@ -102,7 +104,7 @@ def make_records(size: int, seed: int) -> list[dict]:
     return out
 
 
-def expected_overdue_sum(records: list[dict]) -> float:
+def expected_overdue_sum(records: List[Dict]) -> float:
     total = 0.0
     for r in records:
         if r["partner"] in TARGET_PARTNERS and r["status"] == "overdue":
@@ -133,7 +135,7 @@ def chat_completion(
     timeout: int,
     max_completion_tokens: int,
     temperature: float,
-) -> tuple[str, Usage]:
+) -> Tuple[str, Usage]:
     url = api_base.rstrip("/") + "/chat/completions"
     payload = {
         "model": model,
@@ -160,7 +162,7 @@ def chat_completion(
 def run_single_pass(
     session: requests.Session,
     args: argparse.Namespace,
-    records: list[dict],
+    records: List[Dict],
     expected: float,
 ) -> RunResult:
     system_prompt = (
@@ -202,14 +204,14 @@ def run_single_pass(
     )
 
 
-def chunks(lst: list[dict], n: int) -> list[list[dict]]:
+def chunks(lst: List[Dict], n: int) -> List[List[Dict]]:
     return [lst[i : i + n] for i in range(0, len(lst), n)]
 
 
 def run_rlm_map_reduce(
     session: requests.Session,
     args: argparse.Namespace,
-    records: list[dict],
+    records: List[Dict],
     expected: float,
 ) -> RunResult:
     system_prompt = (
@@ -277,8 +279,8 @@ def run_rlm_map_reduce(
     )
 
 
-def summarize(results: list[RunResult]) -> list[dict]:
-    groups: dict[tuple[str, int], list[RunResult]] = {}
+def summarize(results: List[RunResult]) -> List[Dict]:
+    groups: Dict[Tuple[str, int], List[RunResult]] = {}
     for r in results:
         groups.setdefault((r.mode, r.size), []).append(r)
 
@@ -312,7 +314,7 @@ def summarize(results: list[RunResult]) -> list[dict]:
 def main() -> None:
     args = parse_args()
     session = requests.Session()
-    all_results: list[RunResult] = []
+    all_results: List[RunResult] = []
 
     for size in args.sizes:
         records = make_records(size=size, seed=args.seed)

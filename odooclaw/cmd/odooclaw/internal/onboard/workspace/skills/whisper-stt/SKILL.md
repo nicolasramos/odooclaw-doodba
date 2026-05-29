@@ -1,36 +1,15 @@
 ---
 name: whisper-stt
-description:
-  Speech-to-Text transcription using Whisper. Transcribes voice messages from Odoo
-  attachments to text. Supports local Faster Whisper (no API key) and OpenAI Whisper API
-  fallback. Use when user sends a voice note or audio attachment.
+description: Speech-to-Text transcription using Whisper. Transcribes voice messages from Odoo attachments to text. Supports local Faster Whisper (no API key) and OpenAI Whisper API fallback. Use when user sends a voice note or audio attachment.
 homepage: https://github.com/nicolasramos/odooclaw
-metadata:
-  {
-    "openclaw":
-      {
-        "emoji": "🎤",
-        "requires":
-          {
-            "env":
-              [
-                "ODOO_URL",
-                "ODOO_DB",
-                "ODOO_USERNAME",
-                "ODOO_PASSWORD",
-                "OPENAI_API_KEY",
-              ],
-          },
-      },
-  }
+metadata: {"openclaw":{"emoji":"🎤","requires":{"env":["ODOO_URL","ODOO_DB","ODOO_USERNAME","ODOO_PASSWORD","OPENAI_API_KEY"]}}}
 ---
 
 # Whisper STT Skill
 
 ## Overview
 
-This skill transcribes voice messages from Odoo attachments to text using Whisper. It
-supports two methods:
+This skill transcribes voice messages from Odoo attachments to text using Whisper. It supports two methods:
 
 1. **Faster Whisper** (local) - No API key needed, runs on CPU
 2. **Whisper API** (OpenAI) - More accurate, requires `OPENAI_API_KEY`
@@ -39,9 +18,9 @@ The skill automatically tries Faster Whisper first, then falls back to API if ne
 
 ## Quick Reference
 
-| Use Case                | Tool                   |
-| ----------------------- | ---------------------- |
-| Transcribe voice note   | `whisper-transcribe`   |
+| Use Case | Tool |
+|----------|------|
+| Transcribe voice note | `whisper-transcribe` |
 | Check available methods | `whisper-list-methods` |
 
 ## Tools
@@ -51,7 +30,6 @@ The skill automatically tries Faster Whisper first, then falls back to API if ne
 Transcribes an audio attachment from Odoo.
 
 **Parameters:**
-
 - `attachment_id` (required): The Odoo ir.attachment ID to transcribe
 
 **Returns:** Transcribed text, detected language, and method used
@@ -64,11 +42,9 @@ Lists available transcription methods and their status.
 
 ### Example 1: Transcribe a Voice Message
 
-When user sends a voice note, the webhook includes `voice_attachments` with the
-attachment ID.
+When user sends a voice note, the webhook includes `voice_attachments` with the attachment ID.
 
 **Action:**
-
 ```json
 {
   "name": "whisper-transcribe",
@@ -79,7 +55,6 @@ attachment ID.
 ```
 
 **Result:**
-
 ```json
 {
   "success": true,
@@ -91,8 +66,7 @@ attachment ID.
 
 ### Example 2: Full Workflow
 
-1. User sends voice note → webhook includes
-   `voice_attachments: [{id: 1234, name: "voice.mp3"}]`
+1. User sends voice note → webhook includes `voice_attachments: [{id: 1234, name: "voice.mp3"}]`
 2. Use `whisper-transcribe` to get text
 3. Use `odoo-mcp` tools to query the data user is asking about
 4. Reply with text or use `edge-tts-synthesize` for voice response
@@ -126,20 +100,19 @@ When a voice message is received, the webhook now includes:
 ### Detecting Voice Messages
 
 Check for `voice_attachments` array in the webhook payload. Each voice attachment has:
-
 - `id`: The attachment ID to pass to whisper-transcribe
 - `name`: Original filename
 - `mimetype`: Audio MIME type
 
 ## Environment Variables
 
-| Variable         | Required | Description              |
-| ---------------- | -------- | ------------------------ |
-| `ODOO_URL`       | Yes      | Odoo server URL          |
-| `ODOO_DB`        | Yes      | Odoo database name       |
-| `ODOO_USERNAME`  | Yes      | Odoo username            |
-| `ODOO_PASSWORD`  | Yes      | Odoo password or API key |
-| `OPENAI_API_KEY` | No       | For Whisper API fallback |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ODOO_URL` | Yes | Odoo server URL |
+| `ODOO_DB` | Yes | Odoo database name |
+| `ODOO_USERNAME` | Yes | Odoo username |
+| `ODOO_PASSWORD` | Yes | Odoo password or API key |
+| `OPENAI_API_KEY` | No | For Whisper API fallback |
 
 ## Configuration
 
@@ -148,7 +121,7 @@ Check for `voice_attachments` array in the webhook payload. Each voice attachmen
 ```yaml
 # docker-compose.yml
 environment:
-  - OPENAI_API_KEY= # Not needed
+  - OPENAI_API_KEY=  # Not needed
 ```
 
 The skill will use Faster Whisper (local) for all transcriptions.
@@ -183,8 +156,7 @@ environment:
 
 ## Limitations
 
-- **Faster Whisper**: Uses "tiny" model by default for speed. Larger models = more
-  accurate but slower.
+- **Faster Whisper**: Uses "tiny" model by default for speed. Larger models = more accurate but slower.
 - **Audio length**: No hard limit, but very long audio may timeout.
 - **API cost**: Whisper API costs ~$0.006/minute (as of 2024).
 

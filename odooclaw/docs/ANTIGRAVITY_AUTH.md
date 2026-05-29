@@ -2,10 +2,7 @@
 
 ## Overview
 
-**Antigravity** (Google Cloud Code Assist) is a Google-backed AI model provider that
-offers access to models like Claude Opus 4.6 and Gemini through Google's Cloud
-infrastructure. This document provides a complete guide on how authentication works, how
-to fetch models, and how to implement a new provider in OdooClaw.
+**Antigravity** (Google Cloud Code Assist) is a Google-backed AI model provider that offers access to models like Claude Opus 4.6 and Gemini through Google's Cloud infrastructure. This document provides a complete guide on how authentication works, how to fetch models, and how to implement a new provider in OdooClaw.
 
 ---
 
@@ -28,8 +25,7 @@ to fetch models, and how to implement a new provider in OdooClaw.
 
 ### 1. OAuth 2.0 with PKCE
 
-Antigravity uses **OAuth 2.0 with PKCE (Proof Key for Code Exchange)** for secure
-authentication:
+Antigravity uses **OAuth 2.0 with PKCE (Proof Key for Code Exchange)** for secure authentication:
 
 ```
 ┌─────────────┐                                    ┌─────────────────┐
@@ -47,22 +43,20 @@ authentication:
 ### 2. Detailed Steps
 
 #### Step 1: Generate PKCE Parameters
-
 ```typescript
-function generatePkce(): {verifier: string; challenge: string} {
+function generatePkce(): { verifier: string; challenge: string } {
   const verifier = randomBytes(32).toString("hex");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
-  return {verifier, challenge};
+  return { verifier, challenge };
 }
 ```
 
 #### Step 2: Build Authorization URL
-
 ```typescript
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const REDIRECT_URI = "http://localhost:51121/oauth-callback";
 
-function buildAuthUrl(params: {challenge: string; state: string}): string {
+function buildAuthUrl(params: { challenge: string; state: string }): string {
   const url = new URL(AUTH_URL);
   url.searchParams.set("client_id", CLIENT_ID);
   url.searchParams.set("response_type", "code");
@@ -78,7 +72,6 @@ function buildAuthUrl(params: {challenge: string; state: string}): string {
 ```
 
 **Required Scopes:**
-
 ```typescript
 const SCOPES = [
   "https://www.googleapis.com/auth/cloud-platform",
@@ -92,30 +85,27 @@ const SCOPES = [
 #### Step 3: Handle OAuth Callback
 
 **Automatic Mode (Local Development):**
-
 - Start a local HTTP server on port 51121
 - Wait for the redirect from Google
 - Extract the authorization code from the query parameters
 
 **Manual Mode (Remote/Headless):**
-
 - Display the authorization URL to the user
 - User completes authentication in their browser
 - User pastes the full redirect URL back into the terminal
 - Parse the code from the pasted URL
 
 #### Step 4: Exchange Code for Tokens
-
 ```typescript
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 async function exchangeCode(params: {
   code: string;
   verifier: string;
-}): Promise<{access: string; refresh: string; expires: number}> {
+}): Promise<{ access: string; refresh: string; expires: number }> {
   const response = await fetch(TOKEN_URL, {
     method: "POST",
-    headers: {"Content-Type": "application/x-www-form-urlencoded"},
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
@@ -127,7 +117,7 @@ async function exchangeCode(params: {
   });
 
   const data = await response.json();
-
+  
   return {
     access: data.access_token,
     refresh: data.refresh_token,
@@ -139,12 +129,11 @@ async function exchangeCode(params: {
 #### Step 5: Fetch Additional User Data
 
 **User Email:**
-
 ```typescript
 async function fetchUserEmail(accessToken: string): Promise<string | undefined> {
   const response = await fetch(
     "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
-    {headers: {Authorization: `Bearer ${accessToken}`}}
+    { headers: { Authorization: `Bearer ${accessToken}` } }
   );
   const data = await response.json();
   return data.email;
@@ -152,7 +141,6 @@ async function fetchUserEmail(accessToken: string): Promise<string | undefined> 
 ```
 
 **Project ID (Required for API calls):**
-
 ```typescript
 async function fetchProjectId(accessToken: string): Promise<string> {
   const headers = {
@@ -207,7 +195,6 @@ const CLIENT_SECRET = decode(/* see oauth.go */);
 ### OAuth Flow Modes
 
 1. **Automatic Flow** (Local machines with browser):
-
    - Opens browser automatically
    - Local callback server captures redirect
    - No user interaction required after initial auth
@@ -233,19 +220,17 @@ function shouldUseManualOAuthFlow(isRemote: boolean): boolean {
 type OAuthCredential = {
   type: "oauth";
   provider: "google-antigravity";
-  access: string; // Access token
-  refresh: string; // Refresh token
-  expires: number; // Expiration timestamp (ms since epoch)
-  email?: string; // User email
-  projectId?: string; // Google Cloud project ID
+  access: string;           // Access token
+  refresh: string;          // Refresh token
+  expires: number;          // Expiration timestamp (ms since epoch)
+  email?: string;           // User email
+  projectId?: string;       // Google Cloud project ID
 };
 ```
 
 ### Token Refresh
 
-The credential includes a refresh token that can be used to obtain new access tokens
-when the current one expires. The expiration is set with a 5-minute buffer to prevent
-race conditions.
+The credential includes a refresh token that can be used to obtain new access tokens when the current one expires. The expiration is set with a 5-minute buffer to prevent race conditions.
 
 ---
 
@@ -267,14 +252,17 @@ async function fetchAvailableModels(
     "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
   };
 
-  const response = await fetch(`${BASE_URL}/v1internal:fetchAvailableModels`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({project: projectId}),
-  });
+  const response = await fetch(
+    `${BASE_URL}/v1internal:fetchAvailableModels`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ project: projectId }),
+    }
+  );
 
   const data = await response.json();
-
+  
   // Returns models with quota information
   return Object.entries(data.models).map(([modelId, modelInfo]) => ({
     id: modelId,
@@ -292,17 +280,14 @@ async function fetchAvailableModels(
 
 ```typescript
 type FetchAvailableModelsResponse = {
-  models?: Record<
-    string,
-    {
-      displayName?: string;
-      quotaInfo?: {
-        remainingFraction?: number | string;
-        resetTime?: string; // ISO 8601 timestamp
-        isExhausted?: boolean;
-      };
-    }
-  >;
+  models?: Record<string, {
+    displayName?: string;
+    quotaInfo?: {
+      remainingFraction?: number | string;
+      resetTime?: string;      // ISO 8601 timestamp
+      isExhausted?: boolean;
+    };
+  }>;
 };
 ```
 
@@ -318,37 +303,43 @@ export async function fetchAntigravityUsage(
   timeoutMs: number
 ): Promise<ProviderUsageSnapshot> {
   // 1. Fetch credits and plan info
-  const loadCodeAssistRes = await fetch(`${BASE_URL}/v1internal:loadCodeAssist`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      metadata: {
-        ideType: "ANTIGRAVITY",
-        platform: "PLATFORM_UNSPECIFIED",
-        pluginType: "GEMINI",
+  const loadCodeAssistRes = await fetch(
+    `${BASE_URL}/v1internal:loadCodeAssist`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
       },
-    }),
-  });
+      body: JSON.stringify({
+        metadata: {
+          ideType: "ANTIGRAVITY",
+          platform: "PLATFORM_UNSPECIFIED",
+          pluginType: "GEMINI",
+        },
+      }),
+    }
+  );
 
   // Extract credits info
-  const {availablePromptCredits, planInfo, currentTier} = data;
-
+  const { availablePromptCredits, planInfo, currentTier } = data;
+  
   // 2. Fetch model quotas
-  const modelsRes = await fetch(`${BASE_URL}/v1internal:fetchAvailableModels`, {
-    method: "POST",
-    headers: {Authorization: `Bearer ${token}`},
-    body: JSON.stringify({project: projectId}),
-  });
+  const modelsRes = await fetch(
+    `${BASE_URL}/v1internal:fetchAvailableModels`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ project: projectId }),
+    }
+  );
 
   // Build usage windows
   return {
     provider: "google-antigravity",
     displayName: "Google Antigravity",
     windows: [
-      {label: "Credits", usedPercent: calculateUsedPercent(available, monthly)},
+      { label: "Credits", usedPercent: calculateUsedPercent(available, monthly) },
       // Individual model quotas...
     ],
     plan: currentTier?.name || planType,
@@ -368,9 +359,9 @@ type ProviderUsageSnapshot = {
 };
 
 type UsageWindow = {
-  label: string; // "Credits" or model ID
-  usedPercent: number; // 0-100
-  resetAt?: number; // Timestamp when quota resets
+  label: string;           // "Credits" or model ID
+  usedPercent: number;     // 0-100
+  resetAt?: number;        // Timestamp when quota resets
 };
 ```
 
@@ -386,14 +377,14 @@ const antigravityPlugin = {
   name: "Google Antigravity Auth",
   description: "OAuth flow for Google Antigravity (Cloud Code Assist)",
   configSchema: emptyPluginConfigSchema(),
-
+  
   register(api: OdooClawPluginApi) {
     api.registerProvider({
       id: "google-antigravity",
       label: "Google Antigravity",
       docsPath: "/providers/models",
       aliases: ["antigravity"],
-
+      
       auth: [
         {
           id: "oauth",
@@ -417,10 +408,10 @@ type ProviderAuthContext = {
   config: OdooClawConfig;
   agentDir?: string;
   workspaceDir?: string;
-  prompter: WizardPrompter; // UI prompts/notifications
-  runtime: RuntimeEnv; // Logging, etc.
-  isRemote: boolean; // Whether running remotely
-  openUrl: (url: string) => Promise<void>; // Browser opener
+  prompter: WizardPrompter;      // UI prompts/notifications
+  runtime: RuntimeEnv;           // Logging, etc.
+  isRemote: boolean;             // Whether running remotely
+  openUrl: (url: string) => Promise<void>;  // Browser opener
   oauth: {
     createVpsAwareHandlers: Function;
   };
@@ -455,15 +446,15 @@ type ProviderAuthResult = {
 
 ```typescript
 const REQUIRED_HEADERS = {
-  Authorization: `Bearer ${accessToken}`,
+  "Authorization": `Bearer ${accessToken}`,
   "Content-Type": "application/json",
-  "User-Agent": "antigravity", // or "google-api-nodejs-client/9.15.1"
+  "User-Agent": "antigravity",  // or "google-api-nodejs-client/9.15.1"
   "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
 };
 
 // For loadCodeAssist calls, also include:
 const CLIENT_METADATA = {
-  ideType: "ANTIGRAVITY", // or "IDE_UNSPECIFIED"
+  ideType: "ANTIGRAVITY",  // or "IDE_UNSPECIFIED"
   platform: "PLATFORM_UNSPECIFIED",
   pluginType: "GEMINI",
 };
@@ -527,22 +518,22 @@ export function sanitizeAntigravityThinkingBlocks(
 
 ### Authentication Endpoints
 
-| Endpoint                                        | Method | Purpose             |
-| ----------------------------------------------- | ------ | ------------------- |
-| `https://accounts.google.com/o/oauth2/v2/auth`  | GET    | OAuth authorization |
-| `https://oauth2.googleapis.com/token`           | POST   | Token exchange      |
-| `https://www.googleapis.com/oauth2/v1/userinfo` | GET    | User info (email)   |
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `https://accounts.google.com/o/oauth2/v2/auth` | GET | OAuth authorization |
+| `https://oauth2.googleapis.com/token` | POST | Token exchange |
+| `https://www.googleapis.com/oauth2/v1/userinfo` | GET | User info (email) |
 
 ### Cloud Code Assist Endpoints
 
-| Endpoint                                                                       | Method | Purpose                           |
-| ------------------------------------------------------------------------------ | ------ | --------------------------------- |
-| `https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist`                | POST   | Load project info, credits, plan  |
-| `https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels`          | POST   | List available models with quotas |
-| `https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse` | POST   | Chat streaming endpoint           |
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist` | POST | Load project info, credits, plan |
+| `https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels` | POST | List available models with quotas |
+| `https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse` | POST | Chat streaming endpoint |
 
-**API Request Format (Chat):** The `v1internal:streamGenerateContent` endpoint expects
-an envelope wrapping the standard Gemini request:
+**API Request Format (Chat):**
+The `v1internal:streamGenerateContent` endpoint expects an envelope wrapping the standard Gemini request:
 
 ```json
 {
@@ -560,8 +551,8 @@ an envelope wrapping the standard Gemini request:
 }
 ```
 
-**API Response Format (SSE):** Each SSE message (`data: {...}`) is wrapped in a
-`response` field:
+**API Response Format (SSE):**
+Each SSE message (`data: {...}`) is wrapped in a `response` field:
 
 ```json
 {
@@ -623,8 +614,7 @@ Auth profiles are stored in `~/.odooclaw/auth.json`:
 
 ## Creating a New Provider in OdooClaw
 
-OdooClaw providers are implemented as Go packages under `pkg/providers/`. To add a new
-provider:
+OdooClaw providers are implemented as Go packages under `pkg/providers/`. To add a new provider:
 
 ### Step-by-Step Implementation
 
@@ -639,8 +629,7 @@ pkg/providers/
 
 #### 2. Implement the Provider Interface
 
-Your provider must implement the `Provider` interface defined in
-`pkg/providers/types.go`:
+Your provider must implement the `Provider` interface defined in `pkg/providers/types.go`:
 
 ```go
 package providers
@@ -685,8 +674,7 @@ Add a default entry in `pkg/config/defaults.go`:
 
 #### 5. Add Auth Support (Optional)
 
-If your provider requires OAuth or special authentication, add a case to
-`cmd/odooclaw/cmd_auth.go`:
+If your provider requires OAuth or special authentication, add a case to `cmd/odooclaw/cmd_auth.go`:
 
 ```go
 case "your-provider":
@@ -743,7 +731,6 @@ export ODOOCLAW_MODEL_LIST='[{"model_name":"your-model","model":"your-provider/m
 ## References
 
 - **Source Files:**
-
   - `pkg/providers/antigravity_provider.go` - Antigravity provider implementation
   - `pkg/auth/oauth.go` - OAuth flow implementation
   - `pkg/auth/store.go` - Auth credential storage (`~/.odooclaw/auth.json`)
@@ -759,14 +746,11 @@ export ODOOCLAW_MODEL_LIST='[{"model_name":"your-model","model":"your-provider/m
 
 ## Notes
 
-1. **Google Cloud Project:** Antigravity requires Gemini for Google Cloud to be enabled
-   on your Google Cloud project
+1. **Google Cloud Project:** Antigravity requires Gemini for Google Cloud to be enabled on your Google Cloud project
 2. **Quotas:** Uses Google Cloud project quotas (not separate billing)
 3. **Model Access:** Available models depend on your Google Cloud project configuration
-4. **Thinking Blocks:** Claude models via Antigravity require special handling of
-   thinking blocks with signatures
-5. **Schema Sanitization:** Tool schemas must be sanitized to remove unsupported JSON
-   Schema keywords
+4. **Thinking Blocks:** Claude models via Antigravity require special handling of thinking blocks with signatures
+5. **Schema Sanitization:** Tool schemas must be sanitized to remove unsupported JSON Schema keywords
 
 ---
 
@@ -776,11 +760,9 @@ export ODOOCLAW_MODEL_LIST='[{"model_name":"your-model","model":"your-provider/m
 
 ### 1. Rate Limiting (HTTP 429)
 
-Antigravity returns a 429 error when project/model quotas are exhausted. The error
-response often contains a `quotaResetDelay` in the `details` field.
+Antigravity returns a 429 error when project/model quotas are exhausted. The error response often contains a `quotaResetDelay` in the `details` field.
 
 **Example 429 Error:**
-
 ```json
 {
   "error": {
@@ -801,32 +783,25 @@ response often contains a `quotaResetDelay` in the `details` field.
 
 ### 2. Empty Responses (Restricted Models)
 
-Some models might show up in the available models list but return an empty response (200
-OK but empty SSE stream). This usually happens for preview or restricted models that the
-current project doesn't have permission to use.
+Some models might show up in the available models list but return an empty response (200 OK but empty SSE stream). This usually happens for preview or restricted models that the current project doesn't have permission to use.
 
-**Treatment:** Treat empty responses as errors informing the user that the model might
-be restricted or invalid for their project.
+**Treatment:** Treat empty responses as errors informing the user that the model might be restricted or invalid for their project.
 
 ---
 
 ## Troubleshooting
 
 ### "Token expired"
-
 - Refresh OAuth tokens: `odooclaw auth login --provider antigravity`
 
 ### "Gemini for Google Cloud is not enabled"
-
 - Enable the API in your Google Cloud Console
 
 ### "Project not found"
-
 - Ensure your Google Cloud project has the necessary APIs enabled
 - Check that the project ID is correctly fetched during authentication
 
 ### Models not appearing in list
-
 - Verify OAuth authentication completed successfully
 - Check auth profile storage: `~/.odooclaw/auth.json`
 - Re-run `odooclaw auth login --provider antigravity`

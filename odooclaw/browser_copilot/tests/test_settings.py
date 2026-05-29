@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
+
 from browser_copilot.router import create_app
 from browser_copilot.security import load_security_config
-from fastapi.testclient import TestClient
 
 
 class TestHealthEndpoint:

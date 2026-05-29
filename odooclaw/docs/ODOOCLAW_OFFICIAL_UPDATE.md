@@ -32,8 +32,7 @@ This protects user customizations, local runtime settings, and secrets.
 4. Aborts if allowed files have local modifications.
 5. Applies only allowed files with `git checkout <ref> -- <files...>`.
 
-In `--dry-run` mode, local-modification enforcement is skipped so you can inspect the
-full plan.
+In `--dry-run` mode, local-modification enforcement is skipped so you can inspect the full plan.
 
 ## Usage
 
@@ -59,15 +58,12 @@ full plan.
 - `--repo-root PATH`: repository root (default: parent of script).
 - `--ref REF`: git ref to update from (default: `@{u}`).
 - `--dry-run`: preview plan only.
-- `--allow-local-modified`: bypass local-modification guard (use only when overwrite is
-  intentional).
+- `--allow-local-modified`: bypass local-modification guard (use only when overwrite is intentional).
 - `-h`, `--help`: help output.
 
 ## Operational Notes
 
 - Run from a clean working tree for best results.
-- If the script reports local modifications in allowed files, commit/stash/discard
-  first.
-- If you need forced overwrite in allowed files, use `--allow-local-modified`
-  intentionally.
+- If the script reports local modifications in allowed files, commit/stash/discard first.
+- If you need forced overwrite in allowed files, use `--allow-local-modified` intentionally.
 - After update, review with `git status --short` and run your normal runtime checks.

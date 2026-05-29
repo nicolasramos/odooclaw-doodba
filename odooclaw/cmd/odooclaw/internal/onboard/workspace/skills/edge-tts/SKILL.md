@@ -1,34 +1,21 @@
 ---
 name: edge-tts
-description:
-  Microsoft Edge Text-to-Speech (TTS) synthesis. Converts text to natural audio using
-  Edge's AI voices. Uploads directly to Odoo as voice attachments with
-  discuss.voice.metadata. Use when user wants voice/audio response, asks to "speak
-  this", "read aloud", "voice response".
+description: Microsoft Edge Text-to-Speech (TTS) synthesis. Converts text to natural audio using Edge's AI voices. Uploads directly to Odoo as voice attachments with discuss.voice.metadata. Use when user wants voice/audio response, asks to "speak this", "read aloud", "voice response".
 homepage: https://github.com/nicolasramos/odooclaw
-metadata:
-  {
-    "openclaw":
-      {
-        "emoji": "🔊",
-        "requires": {"env": ["ODOO_URL", "ODOO_DB", "ODOO_USERNAME", "ODOO_PASSWORD"]},
-      },
-  }
+metadata: {"openclaw":{"emoji":"🔊","requires":{"env":["ODOO_URL","ODOO_DB","ODOO_USERNAME","ODOO_PASSWORD"]}}}
 ---
 
 # Edge TTS Skill
 
 ## Overview
 
-This skill uses Microsoft Edge's Text-to-Speech engine to generate high-quality audio
-from text. The audio is automatically uploaded to Odoo as an `ir.attachment` with
-`discuss.voice.metadata`, making it playable directly in Odoo Discuss.
+This skill uses Microsoft Edge's Text-to-Speech engine to generate high-quality audio from text. The audio is automatically uploaded to Odoo as an `ir.attachment` with `discuss.voice.metadata`, making it playable directly in Odoo Discuss.
 
 ## Quick Reference
 
-| Use Case              | Tool                   |
-| --------------------- | ---------------------- |
-| Convert text to voice | `edge-tts-synthesize`  |
+| Use Case | Tool |
+|----------|------|
+| Convert text to voice | `edge-tts-synthesize` |
 | List available voices | `edge-tts-list-voices` |
 
 ## Tools
@@ -38,7 +25,6 @@ from text. The audio is automatically uploaded to Odoo as an `ir.attachment` wit
 Generates audio from text using Edge TTS and uploads to Odoo.
 
 **Parameters:**
-
 - `text` (required): Text to convert to speech (recommended max ~1000 chars)
 - `voice` (optional): Voice name. Default: `es-ES-ElenaNeural`
 
@@ -50,27 +36,27 @@ Lists all available Edge TTS voices with language and description.
 
 ## Available Voices
 
-| Voice ID                | Language            | Description |
-| ----------------------- | ------------------- | ----------- |
-| `es-ES-ElenaNeural`     | Spanish (Spain)     | Female      |
-| `es-MX-DaliaNeural`     | Spanish (Mexico)    | Female      |
-| `es-AR-TomasNeural`     | Spanish (Argentina) | Male        |
-| `en-US-JennyNeural`     | English (US)        | Female      |
-| `en-US-GuyNeural`       | English (US)        | Male        |
-| `en-GB-SoniaNeural`     | English (UK)        | Female      |
-| `en-GB-RyanNeural`      | English (UK)        | Male        |
-| `fr-FR-DeniseNeural`    | French              | Female      |
-| `fr-FR-HenriNeural`     | French              | Male        |
-| `de-DE-KatjaNeural`     | German              | Female      |
-| `de-DE-ConradNeural`    | German              | Male        |
-| `it-IT-ElsaNeural`      | Italian             | Female      |
-| `it-IT-DiegoNeural`     | Italian             | Male        |
-| `pt-BR-FranciscaNeural` | Portuguese (Brazil) | Female      |
-| `pt-BR-AntonioNeural`   | Portuguese (Brazil) | Male        |
-| `zh-CN-XiaoxiaoNeural`  | Chinese (Mandarin)  | Female      |
-| `zh-CN-YunyangNeural`   | Chinese (Mandarin)  | Male        |
-| `ja-JP-NanamiNeural`    | Japanese            | Female      |
-| `ja-JP-KeitaNeural`     | Japanese            | Male        |
+| Voice ID | Language | Description |
+|----------|----------|-------------|
+| `es-ES-ElenaNeural` | Spanish (Spain) | Female |
+| `es-MX-DaliaNeural` | Spanish (Mexico) | Female |
+| `es-AR-TomasNeural` | Spanish (Argentina) | Male |
+| `en-US-JennyNeural` | English (US) | Female |
+| `en-US-GuyNeural` | English (US) | Male |
+| `en-GB-SoniaNeural` | English (UK) | Female |
+| `en-GB-RyanNeural` | English (UK) | Male |
+| `fr-FR-DeniseNeural` | French | Female |
+| `fr-FR-HenriNeural` | French | Male |
+| `de-DE-KatjaNeural` | German | Female |
+| `de-DE-ConradNeural` | German | Male |
+| `it-IT-ElsaNeural` | Italian | Female |
+| `it-IT-DiegoNeural` | Italian | Male |
+| `pt-BR-FranciscaNeural` | Portuguese (Brazil) | Female |
+| `pt-BR-AntonioNeural` | Portuguese (Brazil) | Male |
+| `zh-CN-XiaoxiaoNeural` | Chinese (Mandarin) | Female |
+| `zh-CN-YunyangNeural` | Chinese (Mandarin) | Male |
+| `ja-JP-NanamiNeural` | Japanese | Female |
+| `ja-JP-KeitaNeural` | Japanese | Male |
 
 ## Usage Examples
 
@@ -79,7 +65,6 @@ Lists all available Edge TTS voices with language and description.
 **User says:** "Lee en voz alta el resumen del pedido"
 
 **Action:**
-
 ```json
 {
   "name": "edge-tts-synthesize",
@@ -90,15 +75,13 @@ Lists all available Edge TTS voices with language and description.
 }
 ```
 
-**Result:** Returns `attachment_id` (e.g., 1234) that can be attached to message_post in
-Odoo.
+**Result:** Returns `attachment_id` (e.g., 1234) that can be attached to message_post in Odoo.
 
 ### Example 2: English Voice with Different Accent
 
 **User says:** "Read this in English"
 
 **Action:**
-
 ```json
 {
   "name": "edge-tts-synthesize",
@@ -114,7 +97,6 @@ Odoo.
 **User says:** "What voices are available?"
 
 **Action:**
-
 ```json
 {
   "name": "edge-tts-list-voices",
@@ -131,7 +113,6 @@ After generating audio:
 3. Returns `attachment_id` to include in message_post
 
 **Posting voice message to Odoo:**
-
 ```python
 # Using odoo-mcp tools after edge-tts returns attachment_id
 {
@@ -147,20 +128,18 @@ After generating audio:
 
 ## Environment Variables
 
-| Variable        | Required | Description                              |
-| --------------- | -------- | ---------------------------------------- |
-| `ODOO_URL`      | Yes      | Odoo server URL (e.g., http://odoo:8069) |
-| `ODOO_DB`       | Yes      | Odoo database name                       |
-| `ODOO_USERNAME` | Yes      | Odoo username                            |
-| `ODOO_PASSWORD` | Yes      | Odoo password or API key                 |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ODOO_URL` | Yes | Odoo server URL (e.g., http://odoo:8069) |
+| `ODOO_DB` | Yes | Odoo database name |
+| `ODOO_USERNAME` | Yes | Odoo username |
+| `ODOO_PASSWORD` | Yes | Odoo password or API key |
 
 ## Best Practices
 
-1. **Keep text concise**: Edge TTS works best with 1000 characters or less. For longer
-   text, split into chunks.
+1. **Keep text concise**: Edge TTS works best with 1000 characters or less. For longer text, split into chunks.
 2. **Match language**: Use the voice that matches the user's language preference.
-3. **Consider context**: Use female voices for general assistance, male for formal
-   reports, etc.
+3. **Consider context**: Use female voices for general assistance, male for formal reports, etc.
 4. **Error handling**: If synthesis fails, fall back to plain text response.
 
 ## Limitations

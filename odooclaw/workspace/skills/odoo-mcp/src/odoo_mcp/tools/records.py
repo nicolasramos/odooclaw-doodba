@@ -1,16 +1,15 @@
-from typing import Any
-
+from typing import Any, Dict, List, Optional
 from odoo_mcp.core.client import OdooClient
+from odoo_mcp.security.guards import guard_model_access, guard_write_fields
+from odoo_mcp.security.audit import audit_action
 from odoo_mcp.core.domains import validate_domain
 from odoo_mcp.core.serializers import serialize_records
-from odoo_mcp.security.audit import audit_action
-from odoo_mcp.security.guards import guard_model_access, guard_write_fields
 from odoo_mcp.services.partner_service import find_existing_partner_id
 
 
 def odoo_search(
-    client: OdooClient, user_id: int, model: str, domain: list[Any], limit: int
-) -> list[int]:
+    client: OdooClient, user_id: int, model: str, domain: List[Any], limit: int
+) -> List[int]:
     """Search for record IDs matching domain."""
     validate_domain(domain)
     return client.call_kw(
@@ -22,9 +21,9 @@ def odoo_read(
     client: OdooClient,
     user_id: int,
     model: str,
-    ids: list[int],
-    fields: list[str] | None = None,
-) -> list[dict[str, Any]]:
+    ids: List[int],
+    fields: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
     """Read fields for a list of record IDs."""
     kwargs = {"fields": fields} if fields else {}
     records = client.call_kw(
@@ -37,10 +36,10 @@ def odoo_search_read(
     client: OdooClient,
     user_id: int,
     model: str,
-    domain: list[Any],
-    fields: list[str] | None = None,
+    domain: List[Any],
+    fields: Optional[List[str]] = None,
     limit: int = 80,
-) -> list[dict[str, Any]]:
+) -> List[Dict[str, Any]]:
     """Search and read in a single call."""
     validate_domain(domain)
     kwargs = {"limit": limit}
@@ -53,7 +52,7 @@ def odoo_search_read(
 
 
 def odoo_create(
-    client: OdooClient, user_id: int, model: str, values: dict[str, Any]
+    client: OdooClient, user_id: int, model: str, values: Dict[str, Any]
 ) -> int:
     """Create a new record after checking allowlist."""
     guard_model_access(model)
@@ -75,7 +74,7 @@ def odoo_create(
 
 
 def odoo_write(
-    client: OdooClient, user_id: int, model: str, ids: list[int], values: dict[str, Any]
+    client: OdooClient, user_id: int, model: str, ids: List[int], values: Dict[str, Any]
 ) -> bool:
     """Update records, respecting denylists and allowlists."""
     guard_model_access(model)

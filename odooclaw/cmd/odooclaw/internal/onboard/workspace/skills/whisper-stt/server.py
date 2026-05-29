@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-import base64
-import io
-import json
-import os
-import subprocess
 import sys
+import os
+import json
+import base64
 import tempfile
+import subprocess
+import io
 
 sys.stderr.write("[whisper-stt] Starting Whisper STT MCP server\n")
 sys.stderr.flush()
@@ -195,7 +195,7 @@ class WhisperSTT:
                 txt_file = os.path.join(tempfile.gettempdir(), f"{base_name}.txt")
 
                 if os.path.exists(txt_file):
-                    with open(txt_file) as f:
+                    with open(txt_file, "r") as f:
                         text = f.read().strip()
                     try:
                         os.unlink(txt_file)

@@ -1,7 +1,6 @@
 # Browser Extension Distribution
 
-This document explains how to distribute the OdooClaw browser extension for internal use
-first, and later through browser stores if needed.
+This document explains how to distribute the OdooClaw browser extension for internal use first, and later through browser stores if needed.
 
 ## Current Recommendation
 
@@ -63,8 +62,7 @@ Recommended release contents:
 
 ## Browser Stores
 
-When the extension is stable enough for public or semi-public release, prepare store
-publication for:
+When the extension is stable enough for public or semi-public release, prepare store publication for:
 
 - Chrome Web Store
 - Edge Add-ons
@@ -84,8 +82,7 @@ Recommended authorship for distribution materials:
 - **Author**: Nicolás Ramos
 - **Contact**: contacto@nicolasramos.es
 
-The Chromium `manifest.json` does not provide a strong standard `author` field for
-store-facing attribution, so authorship should be reflected in:
+The Chromium `manifest.json` does not provide a strong standard `author` field for store-facing attribution, so authorship should be reflected in:
 
 - repository README
 - support/contact documentation

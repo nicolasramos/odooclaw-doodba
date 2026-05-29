@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Optional
 
 from odoo_mcp.core.client import OdooClient
 from odoo_mcp.services.capability_service import (
@@ -11,7 +11,7 @@ from odoo_mcp.services.capability_service import (
 )
 
 
-def _parse_iso_date(value: str | None, fallback: date | None = None) -> date:
+def _parse_iso_date(value: Optional[str], fallback: Optional[date] = None) -> date:
     if value:
         return datetime.strptime(value, "%Y-%m-%d").date()
     if fallback:
@@ -28,7 +28,9 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
-def _date_domain(field_name: str, date_from: str | None, date_to: str | None) -> list:
+def _date_domain(
+    field_name: str, date_from: Optional[str], date_to: Optional[str]
+) -> list:
     domain: list[list[Any]] = []
     if date_from:
         domain.append([field_name, ">=", date_from])
@@ -60,11 +62,11 @@ def _to_line_commands(lines: list[dict]) -> list[tuple[int, int, dict[str, Any]]
 def find_unreconciled_bank_lines(
     client: OdooClient,
     sender_id: int,
-    journal_id: int | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    amount_min: float | None = None,
-    amount_max: float | None = None,
+    journal_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    amount_min: Optional[float] = None,
+    amount_max: Optional[float] = None,
     limit: int = 50,
 ) -> dict:
     if not client.model_exists("account.bank.statement.line", sender_id=sender_id):
@@ -265,7 +267,7 @@ def reconcile_bank_line(
         ("action_reconcile", [[statement_line_id], move_line_ids], {}),
         ("reconcile", [[statement_line_id], move_line_ids], {}),
     ]
-    last_error: str | None = None
+    last_error: Optional[str] = None
     for method, args, kwargs in attempts:
         try:
             client.call_kw(
@@ -297,10 +299,10 @@ def register_invoice_payment(
     client: OdooClient,
     sender_id: int,
     invoice_id: int,
-    amount: float | None = None,
-    payment_date: str | None = None,
-    journal_id: int | None = None,
-    memo: str | None = None,
+    amount: Optional[float] = None,
+    payment_date: Optional[str] = None,
+    journal_id: Optional[int] = None,
+    memo: Optional[str] = None,
 ) -> dict:
     if not client.model_exists("account.move", sender_id=sender_id):
         return build_unsupported_response(
@@ -396,8 +398,8 @@ def get_ar_ap_aging(
     client: OdooClient,
     sender_id: int,
     report_type: str = "both",
-    as_of: str | None = None,
-    company_id: int | None = None,
+    as_of: Optional[str] = None,
+    company_id: Optional[int] = None,
     limit: int = 500,
 ) -> dict:
     if not client.model_exists("account.move", sender_id=sender_id):
@@ -493,7 +495,7 @@ def run_period_close_checks(
     sender_id: int,
     period_start: str,
     period_end: str,
-    company_id: int | None = None,
+    company_id: Optional[int] = None,
 ) -> dict:
     if not client.model_exists("account.move", sender_id=sender_id):
         return build_unsupported_response(
@@ -575,8 +577,8 @@ def create_journal_entry(
     journal_id: int,
     entry_date: str,
     lines: list[dict[str, Any]],
-    ref: str | None = None,
-    company_id: int | None = None,
+    ref: Optional[str] = None,
+    company_id: Optional[int] = None,
 ) -> dict:
     if not client.model_exists("account.move", sender_id=sender_id):
         return build_unsupported_response(
@@ -663,8 +665,8 @@ def get_tax_summary(
     sender_id: int,
     date_from: str,
     date_to: str,
-    company_id: int | None = None,
-    tax_group_id: int | None = None,
+    company_id: Optional[int] = None,
+    tax_group_id: Optional[int] = None,
 ) -> dict:
     if not client.model_exists("account.move.line", sender_id=sender_id):
         return build_unsupported_response(
@@ -752,10 +754,10 @@ def validate_vendor_bill_duplicate(
     client: OdooClient,
     sender_id: int,
     partner_id: int,
-    vendor_bill_number: str | None,
-    invoice_date: str | None,
-    amount_total: float | None,
-    currency_id: int | None = None,
+    vendor_bill_number: Optional[str],
+    invoice_date: Optional[str],
+    amount_total: Optional[float],
+    currency_id: Optional[int] = None,
     tolerance: float = 0.01,
 ) -> dict:
     if not client.model_exists("account.move", sender_id=sender_id):
@@ -836,9 +838,9 @@ def suggest_expense_account_and_taxes(
     sender_id: int,
     description: str,
     amount: float,
-    partner_id: int | None = None,
-    product_id: int | None = None,
-    company_id: int | None = None,
+    partner_id: Optional[int] = None,
+    product_id: Optional[int] = None,
+    company_id: Optional[int] = None,
 ) -> dict:
     if not client.model_exists("account.move.line", sender_id=sender_id):
         return build_unsupported_response(
@@ -953,11 +955,11 @@ def create_vendor_bill_from_ocr_validated(
     client: OdooClient,
     sender_id: int,
     ocr_payload: dict[str, Any],
-    attachment_id: int | None = None,
+    attachment_id: Optional[int] = None,
     confirm: bool = False,
     dry_run: bool = False,
-    company_id: int | None = None,
-    allowed_company_ids: list[int] | None = None,
+    company_id: Optional[int] = None,
+    allowed_company_ids: Optional[list[int]] = None,
 ) -> dict:
     if not client.model_exists("account.move", sender_id=sender_id):
         return build_unsupported_response(

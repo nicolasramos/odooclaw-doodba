@@ -1,12 +1,10 @@
 # Odoo Private Reply Routing
 
-This guide explains how OdooClaw handles reply privacy in Odoo Discuss and how to
-configure DM-only versus group-triggered behavior.
+This guide explains how OdooClaw handles reply privacy in Odoo Discuss and how to configure DM-only versus group-triggered behavior.
 
 ## Goal
 
-Ensure responses are delivered to the correct user context and avoid cross-user leakage
-in shared channels.
+Ensure responses are delivered to the correct user context and avoid cross-user leakage in shared channels.
 
 ## Modes
 
@@ -37,8 +35,7 @@ Behavior:
 - Group mentions are accepted.
 - Odoo module provides `reply_model` + `reply_res_id` when available.
 - Gateway routes replies to private user↔bot chat targets.
-- Session scope for these interactions is user-isolated (`peer.Kind=direct`,
-  `peer.ID=sender_id`).
+- Session scope for these interactions is user-isolated (`peer.Kind=direct`, `peer.ID=sender_id`).
 
 ## Why this matters
 
@@ -58,9 +55,7 @@ Behavior:
 
 ## Quick validation checklist
 
-1. **DM check-in:** “registra mi entrada” should use attendance flow without
-   access-denied errors.
+1. **DM check-in:** “registra mi entrada” should use attendance flow without access-denied errors.
 2. **Group mention (DM-only mode):** no assistant response in group.
-3. **Group mention (enabled mode):** reply appears in private chat target, not the
-   source group thread.
+3. **Group mention (enabled mode):** reply appears in private chat target, not the source group thread.
 4. **Two users in same channel:** no cross-user context leakage.

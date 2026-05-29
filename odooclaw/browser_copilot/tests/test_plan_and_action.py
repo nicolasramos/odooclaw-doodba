@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+
 from browser_copilot.action_executor import ActionValidationError, build_action_response
 from browser_copilot.schemas import ActionTarget, ActionType, SuggestedAction
 from browser_copilot.service import BrowserCopilotService, normalize_session_lookup_key

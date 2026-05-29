@@ -1,42 +1,20 @@
 ---
 name: ocr-invoice
-description:
-  Extract supplier invoice data from Odoo attachment (PDF/image) using an
-  OpenAI-compatible vision model and optionally create the vendor bill automatically in
-  Odoo.
+description: Extract supplier invoice data from Odoo attachment (PDF/image) using an OpenAI-compatible vision model and optionally create the vendor bill automatically in Odoo.
 homepage: https://github.com/nicolasramos/odooclaw
-metadata:
-  {
-    "openclaw":
-      {
-        "emoji": "🧾",
-        "requires":
-          {
-            "env":
-              [
-                "ODOO_URL",
-                "ODOO_DB",
-                "ODOO_USERNAME",
-                "ODOO_PASSWORD",
-                "VISION_API_BASE",
-                "VISION_MODEL",
-                "OPENAI_API_KEY",
-              ],
-          },
-      },
-  }
+metadata: {"openclaw":{"emoji":"🧾","requires":{"env":["ODOO_URL","ODOO_DB","ODOO_USERNAME","ODOO_PASSWORD","VISION_API_BASE","VISION_MODEL","OPENAI_API_KEY"]}}}
 ---
 
 # OCR Invoice Skill
 
 Complete vendor bill flow from an Odoo attachment:
 
-1. Download `ir.attachment` (PDF or image)
-2. Extract invoice data with a vision model (OpenAI-compatible API)
-3. Normalize invoice JSON
-4. Optionally create vendor bill (`account.move`, `in_invoice`) and attach original file
-5. Optionally create employee expense (`hr.expense`) and attach original file
-6. Optionally create mileage expense (`hr.expense`) and attach original file
+1) Download `ir.attachment` (PDF or image)
+2) Extract invoice data with a vision model (OpenAI-compatible API)
+3) Normalize invoice JSON
+4) Optionally create vendor bill (`account.move`, `in_invoice`) and attach original file
+5) Optionally create employee expense (`hr.expense`) and attach original file
+6) Optionally create mileage expense (`hr.expense`) and attach original file
 
 ## When to use this skill
 
@@ -73,8 +51,7 @@ Extract and create vendor bill in Odoo.
 ```
 
 - `dry_run=true`: extract and normalize only; do not create `account.move`.
-- `sender_id` + company context: executes ORM as the Odoo user and respects
-  multi-company (`company_id`, `allowed_company_ids`).
+- `sender_id` + company context: executes ORM as the Odoo user and respects multi-company (`company_id`, `allowed_company_ids`).
 
 ### `ocr-create-employee-expense`
 
@@ -113,10 +90,8 @@ Extract and create mileage expense in Odoo.
 ```
 
 - `dry_run=true`: extract and normalize mileage data only.
-- Extracted fields include `trip_date`, `origin`, `destination`, `distance_km`,
-  `rate_per_km`, and `total_amount`.
-- If `distance_km` and `rate_per_km` are detected, the expense uses them as `quantity`
-  and `unit_amount`.
+- Extracted fields include `trip_date`, `origin`, `destination`, `distance_km`, `rate_per_km`, and `total_amount`.
+- If `distance_km` and `rate_per_km` are detected, the expense uses them as `quantity` and `unit_amount`.
 
 ## Environment variables
 
@@ -146,8 +121,7 @@ environment:
   - OPENAI_API_KEY=sk-...
 ```
 
-Also works with OpenAI-compatible endpoints (OVH, Groq, vLLM, etc.) that expose
-multimodal `chat/completions`.
+Also works with OpenAI-compatible endpoints (OVH, Groq, vLLM, etc.) that expose multimodal `chat/completions`.
 
 ## Expected output
 

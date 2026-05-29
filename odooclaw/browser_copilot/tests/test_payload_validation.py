@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from browser_copilot.schemas import SnapshotPayload
 from pydantic import ValidationError
+
+from browser_copilot.schemas import SnapshotPayload
 
 
 def _base_snapshot() -> dict:

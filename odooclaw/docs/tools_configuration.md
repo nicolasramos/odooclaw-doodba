@@ -54,10 +54,8 @@ The exec tool is used to execute shell commands.
 
 ### Functionality
 
-- **`enable_deny_patterns`**: Set to `false` to completely disable the default dangerous
-  command blocking patterns
-- **`custom_deny_patterns`**: Add custom deny regex patterns; commands matching these
-  will be blocked
+- **`enable_deny_patterns`**: Set to `false` to completely disable the default dangerous command blocking patterns
+- **`custom_deny_patterns`**: Add custom deny regex patterns; commands matching these will be blocked
 
 ### Default Blocked Command Patterns
 
@@ -208,8 +206,7 @@ The skills tool configures skill discovery and installation via registries like 
 
 ## Environment Variables
 
-All configuration options can be overridden via environment variables with the format
-`ODOOCLAW_TOOLS_<SECTION>_<KEY>`:
+All configuration options can be overridden via environment variables with the format `ODOOCLAW_TOOLS_<SECTION>_<KEY>`:
 
 For example:
 
@@ -218,5 +215,4 @@ For example:
 - `ODOOCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES=10`
 - `ODOOCLAW_TOOLS_MCP_ENABLED=true`
 
-Note: Nested map-style config (for example `tools.mcp.servers.<name>.*`) is configured
-in `config.json` rather than environment variables.
+Note: Nested map-style config (for example `tools.mcp.servers.<name>.*`) is configured in `config.json` rather than environment variables.

@@ -1,8 +1,9 @@
+import sys
+import os
 import json
 import math
-import os
-import sys
 import uuid
+from datetime import datetime
 
 # RLM Utils MCP Server for OdooClaw
 # Corrected for full JSON-RPC 2.0 / MCP compatibility
@@ -102,7 +103,7 @@ def rlm_aggregate(file_paths, aggregation_type="list"):
             log(f"Warning: File not found: {path}")
             continue
         try:
-            with open(path, encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 content = json.load(f)
                 if isinstance(content, list):
                     results.extend(content)

@@ -101,10 +101,7 @@ func (c *OdooChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		return err
 	}
 
-	endpoint := fmt.Sprintf("%s/odooclaw/reply", strings.TrimSuffix(odooURL, "/"))
-	if odooDB := os.Getenv("ODOO_DB"); odooDB != "" {
-		endpoint = fmt.Sprintf("%s?db=%s", endpoint, odooDB)
-	}
+	endpoint := buildReplyEndpoint(odooURL, c.config.TargetDB, os.Getenv("ODOO_DB"))
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return err
@@ -127,6 +124,21 @@ func (c *OdooChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	return nil
 }
 
+func buildReplyEndpoint(odooURL, targetDB, fallbackEnvDB string) string {
+	endpoint := fmt.Sprintf("%s/odooclaw/reply", strings.TrimSuffix(odooURL, "/"))
+
+	resolvedDB := strings.TrimSpace(targetDB)
+	if resolvedDB == "" {
+		resolvedDB = strings.TrimSpace(fallbackEnvDB)
+	}
+
+	if resolvedDB != "" {
+		endpoint = fmt.Sprintf("%s?db=%s", endpoint, resolvedDB)
+	}
+
+	return endpoint
+}
+
 func (c *OdooChannel) WebhookPath() string {
 	if c.config.WebhookPath != "" {
 		return c.config.WebhookPath
@@ -146,6 +158,14 @@ func (c *OdooChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
+
+	// Verify webhook token if configured
+	token := r.Header.Get("X-OdooClaw-Token")
+	if c.config.WebhookToken != "" && token != c.config.WebhookToken {
+		slog.Warn("Rejected webhook: invalid token", "remote", r.RemoteAddr)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	var payload OdooWebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -199,6 +219,16 @@ func (c *OdooChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	content := strings.TrimSpace(payload.Body)
+
+	// Enrich message with record context when coming from a non-channel model
+	if payload.Model != "" && payload.Model != "discuss.channel" && payload.ResID > 0 {
+		content = fmt.Sprintf(
+			"[Odoo Context: %s ID=%d]\n%s",
+			payload.Model,
+			payload.ResID,
+			content,
+		)
+	}
 
 	// Odoo filters mentions server-side before sending to the webhook.
 	var mediaPaths []string

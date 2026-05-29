@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -27,9 +27,9 @@ class AppContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     detected: str = "unknown"
-    model: str | None = None
-    record_id: int | None = None
-    view_type: str | None = None
+    model: Optional[str] = None
+    record_id: Optional[int] = None
+    view_type: Optional[str] = None
 
 
 class SnapshotElement(BaseModel):
@@ -37,7 +37,7 @@ class SnapshotElement(BaseModel):
 
     id: str
     type: str
-    tag: str | None = None
+    tag: Optional[str] = None
     label: str = ""
     name: str = ""
     role: str = ""
@@ -99,11 +99,11 @@ class SnapshotPayload(BaseModel):
     headings: list[str] = Field(default_factory=list)
     breadcrumbs: list[str] = Field(default_factory=list)
     actions_available: list[ActionType] = Field(default_factory=list)
-    channel: str | None = None
-    chat_id: str | None = None
-    sender_id: str | None = None
-    source: str | None = None
-    pairing_code: str | None = None
+    channel: Optional[str] = None
+    chat_id: Optional[str] = None
+    sender_id: Optional[str] = None
+    source: Optional[str] = None
+    pairing_code: Optional[str] = None
 
     @field_validator("visible_text")
     @classmethod
@@ -115,13 +115,13 @@ class AppDetection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     detected: str
-    model: str | None = None
-    record_id: int | None = None
-    view_type: str | None = None
+    model: Optional[str] = None
+    record_id: Optional[int] = None
+    view_type: Optional[str] = None
     chatter_visible: bool = False
     fields_visible: list[str] = Field(default_factory=list)
     main_buttons_visible: list[str] = Field(default_factory=list)
-    probable_record_name: str | None = None
+    probable_record_name: Optional[str] = None
     confidence: float = Field(ge=0.0, le=1.0)
 
 
@@ -140,19 +140,19 @@ class BrowserContextResolveRequest(BaseModel):
 
     channel: str
     chat_id: str
-    sender_id: str | None = None
+    sender_id: Optional[str] = None
 
 
 class BrowserContextResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     found: bool = False
-    shared_at: datetime | None = None
-    age_seconds: int | None = None
-    page_url: str | None = None
-    page_title: str | None = None
-    domain: str | None = None
-    app: AppDetection | None = None
+    shared_at: Optional[datetime] = None
+    age_seconds: Optional[int] = None
+    page_url: Optional[str] = None
+    page_title: Optional[str] = None
+    domain: Optional[str] = None
+    app: Optional[AppDetection] = None
     headings: list[str] = Field(default_factory=list)
     breadcrumbs: list[str] = Field(default_factory=list)
     visible_fields: list[str] = Field(default_factory=list)
@@ -166,7 +166,7 @@ class BrowserPairingCreateRequest(BaseModel):
 
     channel: str
     chat_id: str
-    sender_id: str | None = None
+    sender_id: Optional[str] = None
 
 
 class BrowserPairingCodeResponse(BaseModel):
@@ -190,9 +190,9 @@ class BrowserPairingLinkResponse(BaseModel):
 
     linked: bool
     code: str
-    channel: str | None = None
-    chat_id: str | None = None
-    expires_at: datetime | None = None
+    channel: Optional[str] = None
+    chat_id: Optional[str] = None
+    expires_at: Optional[datetime] = None
 
 
 class PlanRequest(BaseModel):
@@ -205,7 +205,7 @@ class PlanRequest(BaseModel):
 class ActionTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    element_id: str | None = None
+    element_id: Optional[str] = None
     selector: str
 
 
@@ -214,7 +214,7 @@ class SuggestedAction(BaseModel):
 
     action_type: ActionType
     target: ActionTarget
-    value: str | None = None
+    value: Optional[str] = None
     reason: str
 
 

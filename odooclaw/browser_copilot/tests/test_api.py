@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from conftest import auth_headers
 from fastapi.testclient import TestClient
+
+from conftest import auth_headers
 
 
 def _snapshot(domain: str = "demo.odoo.com") -> dict:
