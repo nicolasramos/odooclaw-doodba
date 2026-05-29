@@ -145,8 +145,9 @@ def markdown_to_safe_html(text):  # noqa: C901
         if heading_match:
             flush_non_code()
             level = min(len(heading_match.group(1)), 6)
-            rendered_heading = _render_inline(heading_match.group(2))
-            blocks.append(f"<h{level}>{rendered_heading}</h{level}>")
+            blocks.append(
+                f"<h{level}>{_render_inline(heading_match.group(2))}</h{level}>"
+            )
             continue
 
         if not stripped:
@@ -180,7 +181,8 @@ def _render_link(match):
         return label
     safe_href = html.escape(href, quote=True)
     return (
-        f'<a href="{safe_href}" target="_blank" rel="noopener noreferrer">{label}</a>'
+        f'<a href="{safe_href}" target="_blank" rel="noopener noreferrer">'
+        f"{label}</a>"
     )
 
 
