@@ -14,7 +14,7 @@ odoo_listdb: true
 odoo_listdb_staging: true
 odoo_oci_image: ""
 odoo_proxy: ""
-odoo_version: 18.0
+odoo_version: 16.0
 paths_with_crawlers:
   - /web/image/website
 paths_without_crawlers:
