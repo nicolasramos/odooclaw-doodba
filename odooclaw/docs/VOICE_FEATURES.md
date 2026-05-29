@@ -4,10 +4,10 @@ OdooClaw supports **voice messages** in both directions through two new MCP skil
 
 ## Overview
 
-| Feature                  | Skill         | Description                       |
-| ------------------------ | ------------- | --------------------------------- |
+| Feature | Skill | Description |
+|---------|-------|-------------|
 | **STT** (Speech-to-Text) | `whisper-stt` | Transcribes voice notes from Odoo |
-| **TTS** (Text-to-Speech) | `edge-tts`    | Generates voice responses         |
+| **TTS** (Text-to-Speech) | `edge-tts` | Generates voice responses |
 
 ---
 
@@ -99,34 +99,33 @@ environment:
 
 ### Available Voices
 
-| Voice ID                | Language            | Description |
-| ----------------------- | ------------------- | ----------- |
-| `es-ES-ElenaNeural`     | Spanish (Spain)     | Female      |
-| `es-MX-DaliaNeural`     | Spanish (Mexico)    | Female      |
-| `es-AR-TomasNeural`     | Spanish (Argentina) | Male        |
-| `en-US-JennyNeural`     | English (US)        | Female      |
-| `en-US-GuyNeural`       | English (US)        | Male        |
-| `en-GB-SoniaNeural`     | English (UK)        | Female      |
-| `en-GB-RyanNeural`      | English (UK)        | Male        |
-| `fr-FR-DeniseNeural`    | French              | Female      |
-| `fr-FR-HenriNeural`     | French              | Male        |
-| `de-DE-KatjaNeural`     | German              | Female      |
-| `de-DE-ConradNeural`    | German              | Male        |
-| `it-IT-ElsaNeural`      | Italian             | Female      |
-| `it-IT-DiegoNeural`     | Italian             | Male        |
-| `pt-BR-FranciscaNeural` | Portuguese (Brazil) | Female      |
-| `pt-BR-AntonioNeural`   | Portuguese (Brazil) | Male        |
-| `zh-CN-XiaoxiaoNeural`  | Chinese (Mandarin)  | Female      |
-| `zh-CN-YunyangNeural`   | Chinese (Mandarin)  | Male        |
-| `ja-JP-NanamiNeural`    | Japanese            | Female      |
-| `ja-JP-KeitaNeural`     | Japanese            | Male        |
+| Voice ID | Language | Description |
+|----------|----------|-------------|
+| `es-ES-ElenaNeural` | Spanish (Spain) | Female |
+| `es-MX-DaliaNeural` | Spanish (Mexico) | Female |
+| `es-AR-TomasNeural` | Spanish (Argentina) | Male |
+| `en-US-JennyNeural` | English (US) | Female |
+| `en-US-GuyNeural` | English (US) | Male |
+| `en-GB-SoniaNeural` | English (UK) | Female |
+| `en-GB-RyanNeural` | English (UK) | Male |
+| `fr-FR-DeniseNeural` | French | Female |
+| `fr-FR-HenriNeural` | French | Male |
+| `de-DE-KatjaNeural` | German | Female |
+| `de-DE-ConradNeural` | German | Male |
+| `it-IT-ElsaNeural` | Italian | Female |
+| `it-IT-DiegoNeural` | Italian | Male |
+| `pt-BR-FranciscaNeural` | Portuguese (Brazil) | Female |
+| `pt-BR-AntonioNeural` | Portuguese (Brazil) | Male |
+| `zh-CN-XiaoxiaoNeural` | Chinese (Mandarin) | Female |
+| `zh-CN-YunyangNeural` | Chinese (Mandarin) | Male |
+| `ja-JP-NanamiNeural` | Japanese | Female |
+| `ja-JP-KeitaNeural` | Japanese | Male |
 
 **Default voice:** `es-ES-ElenaNeural`
 
 ### Using TTS
 
 The LLM automatically uses `edge-tts-synthesize` when:
-
 - User asks for "voice response"
 - User asks to "read this aloud"
 - User requests audio output
@@ -146,18 +145,18 @@ services:
       - ODOO_DB=${POSTGRES_DB:-devel}
       - ODOO_USERNAME=${ODOO_USERNAME:-admin}
       - ODOO_PASSWORD=${ODOO_PASSWORD:-admin}
-
+      
       # LLM Configuration
       - ODOOCLAW_AGENTS_DEFAULTS_PROVIDER=openai
       - ODOOCLAW_AGENTS_DEFAULTS_MODEL=gpt-4o
       - ODOOCLAW_PROVIDERS_OPENAI_API_KEY=${OPENAI_API_KEY}
-
+      
        # Voice (STT)
        - STT_PROVIDER=${STT_PROVIDER:-auto}
        - STT_API_BASE=${STT_API_BASE:-https://api.openai.com/v1}
        - STT_API_KEY=${STT_API_KEY}
        - STT_OPENAI_MODEL=${STT_OPENAI_MODEL:-whisper-1}
-
+      
       # Voice (TTS - No config needed)
       # Edge TTS is included by default
 ```
@@ -241,29 +240,24 @@ The AI agent automatically:
 ### STT Issues
 
 **"Faster Whisper not available"**
-
 - Install: `pip install faster-whisper`
 - Or set `STT_PROVIDER=openai` with API vars
 
 **"STT API key not configured"**
-
 - Set `STT_API_KEY` (or `OPENAI_API_KEY` fallback)
 - Verify `STT_PROVIDER` mode
 
 **"Wrong OpenAI-compatible model"**
-
 - Set `STT_OPENAI_MODEL` to the model name required by your provider
 - Check `STT_API_BASE` points to your provider `/v1`
 
 ### TTS Issues
 
 **"edge-tts not found"**
-
 - Rebuild Docker container with updated Dockerfile
 - Verify `edge-tts` is in pip install
 
 **Voice not playing in Odoo**
-
 - Ensure `voice_ids` is included in message_post
 - Check Odoo Discuss supports voice messages (Odoo 18+)
 
@@ -271,12 +265,12 @@ The AI agent automatically:
 
 ## Files Reference
 
-| File            | Location                                     |
-| --------------- | -------------------------------------------- |
-| STT MCP command | `whisper-stt-mcp.py` (PATH)                  |
-| STT Skill Doc   | `workspace/skills/whisper-stt/SKILL.md`      |
-| TTS MCP command | `edge-tts-mcp.py` (PATH)                     |
-| TTS Skill Doc   | `workspace/skills/edge-tts/SKILL.md`         |
-| Odoo Module     | `odoo/custom/src/private/mail_bot_odooclaw/` |
-| Dockerfile      | `docker/Dockerfile`                          |
-| Config          | `config/config.json`                         |
+| File | Location |
+|------|----------|
+| STT MCP command | `whisper-stt-mcp.py` (PATH) |
+| STT Skill Doc | `workspace/skills/whisper-stt/SKILL.md` |
+| TTS MCP command | `edge-tts-mcp.py` (PATH) |
+| TTS Skill Doc | `workspace/skills/edge-tts/SKILL.md` |
+| Odoo Module | `odoo/custom/src/private/mail_bot_odooclaw/` |
+| Dockerfile | `docker/Dockerfile` |
+| Config | `config/config.json` |

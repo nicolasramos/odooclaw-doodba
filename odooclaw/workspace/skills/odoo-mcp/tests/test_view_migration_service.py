@@ -1,25 +1,26 @@
 from unittest.mock import MagicMock
 
-import odoo_mcp.services.view_migration_service as view_migration_service
 import pytest
+
 from odoo_mcp.core.client import OdooClient
 from odoo_mcp.services.view_migration_service import (
-    apply_report_patch_safe,
-    apply_view_patch_safe,
-    assist_report_migration,
-    assist_view_migration,
-    batch_assist_report_migration,
-    batch_assist_view_migration,
     get_view_by_xmlid,
-    preview_report_patch,
-    preview_view_patch,
-    propose_view_patch,
-    rollback_patch_safe,
     scan_view_migration_issues,
+    propose_view_patch,
     validate_view_patch,
-    visualize_report_patch,
+    preview_view_patch,
+    preview_report_patch,
+    apply_view_patch_safe,
+    apply_report_patch_safe,
+    rollback_patch_safe,
+    assist_view_migration,
+    assist_report_migration,
     visualize_view_patch,
+    visualize_report_patch,
+    batch_assist_view_migration,
+    batch_assist_report_migration,
 )
+import odoo_mcp.services.view_migration_service as view_migration_service
 
 
 @pytest.fixture

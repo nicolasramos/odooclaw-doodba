@@ -1,7 +1,6 @@
 # Browser Copilot + Doodba 18 Setup
 
-This guide explains how to run the Browser Copilot MVP together with your Doodba
-dev/test environment.
+This guide explains how to run the Browser Copilot MVP together with your Doodba dev/test environment.
 
 ## Scope (Phase 1)
 
@@ -63,8 +62,7 @@ BROWSER_COPILOT_READ_ONLY=true
 
 ### 3.1) Minimal `prod.yaml` configuration (bare Doodba)
 
-If you are starting from a minimal Doodba setup (for example `/opt/doodba`) and using
-`prod.yaml`, this is a ready-to-use base for `odooclaw` + `browser-copilot`:
+If you are starting from a minimal Doodba setup (for example `/opt/doodba`) and using `prod.yaml`, this is a ready-to-use base for `odooclaw` + `browser-copilot`:
 
 ```yaml
 services:
@@ -117,10 +115,10 @@ services:
     volumes:
       - ./odooclaw:/workspace/odooclaw:ro
     command: >
-      sh -lc " pip install --no-cache-dir -r
-      /workspace/odooclaw/odooclaw/browser_copilot/requirements.txt && uvicorn
-      browser_copilot.app:app --host 0.0.0.0 --port 8765 --app-dir
-      /workspace/odooclaw/odooclaw "
+      sh -lc "
+      pip install --no-cache-dir -r /workspace/odooclaw/odooclaw/browser_copilot/requirements.txt &&
+      uvicorn browser_copilot.app:app --host 0.0.0.0 --port 8765 --app-dir /workspace/odooclaw/odooclaw
+      "
     depends_on:
       - odooclaw
     networks:
@@ -171,19 +169,16 @@ Required for this minimal setup:
 
 Optional (advanced customization only):
 
-- Mounting individual skill Python files (`edge-tts`, `whisper-stt`, `ocr-invoice`,
-  `rlm-utils`, etc.)
+- Mounting individual skill Python files (`edge-tts`, `whisper-stt`, `ocr-invoice`, `rlm-utils`, etc.)
 - Mounting custom MCP source trees for live development
 
-For a clean baseline deployment, do not mount individual Python skill files unless you
-need hot-swapping or custom skill development.
+For a clean baseline deployment, do not mount individual Python skill files unless you need hot-swapping or custom skill development.
 
 ### 3.4) Why Redis appears in `prod.yaml`
 
 Redis is used by the main `odooclaw` service, not by the browser extension itself.
 
-- `odooclaw` uses Redis for async/background coordination (queue/event-bus style
-  behavior).
+- `odooclaw` uses Redis for async/background coordination (queue/event-bus style behavior).
 - This is why the minimal block includes:
   - `ODOOCLAW_REDIS_URL=redis://redis:6379/0`
   - `depends_on: [redis]`
@@ -191,8 +186,7 @@ Redis is used by the main `odooclaw` service, not by the browser extension itsel
 For Browser Copilot specifically:
 
 - `browser-copilot` does **not** require Redis directly.
-- Redis is still recommended because Browser Copilot is linked to OdooClaw chat flow,
-  and OdooClaw runtime relies on Redis in the standard deployment pattern.
+- Redis is still recommended because Browser Copilot is linked to OdooClaw chat flow, and OdooClaw runtime relies on Redis in the standard deployment pattern.
 
 ## 4) Load Browser Extension
 
@@ -209,11 +203,9 @@ For Browser Copilot specifically:
 2. Click **Load Temporary Add-on...**
 3. Select `browser_extension/manifest.json`
 
-In the current simplified popup, the main user flow is based on a pairing code. Backend
-URL and token are only needed for debugging or advanced setup.
+In the current simplified popup, the main user flow is based on a pairing code. Backend URL and token are only needed for debugging or advanced setup.
 
 Popup UI (current baseline):
-
 - linked / not linked status
 - pairing code input
 - per-tab context sharing toggle

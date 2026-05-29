@@ -1,7 +1,6 @@
 # Odoo Chat Memory QA Guide
 
-This guide validates memory behavior directly from Odoo Discuss after enabling the
-historical memory layer.
+This guide validates memory behavior directly from Odoo Discuss after enabling the historical memory layer.
 
 ## Scope
 
@@ -26,9 +25,11 @@ Use chat with record **A** first, then record **B**.
 
 ### 1) Persistent preference recall
 
-Prompt 1: `From now on I prefer follow-up summaries on Fridays in a short format.`
+Prompt 1:
+`From now on I prefer follow-up summaries on Fridays in a short format.`
 
-Prompt 2: `Which day and format do I prefer for follow-up summaries?`
+Prompt 2:
+`Which day and format do I prefer for follow-up summaries?`
 
 Expected:
 
@@ -37,9 +38,11 @@ Expected:
 
 ### 2) Transient/noise should not dominate memory
 
-Prompt: `Hello, thanks, ok.`
+Prompt:
+`Hello, thanks, ok.`
 
-Then: `What important information did I just leave for you to remember?`
+Then:
+`What important information did I just leave for you to remember?`
 
 Expected:
 
@@ -47,9 +50,11 @@ Expected:
 
 ### 3) Scope isolation across records
 
-In record A: `Remember that this customer prefers contact by email.`
+In record A:
+`Remember that this customer prefers contact by email.`
 
-In record B: `Does this customer prefer contact by email?`
+In record B:
+`Does this customer prefer contact by email?`
 
 Expected:
 
@@ -57,9 +62,11 @@ Expected:
 
 ### 4) Scope isolation across companies
 
-In company 1: `Remember that this customer uses monthly consolidated billing.`
+In company 1:
+`Remember that this customer uses monthly consolidated billing.`
 
-In company 2: `What billing type does this customer use?`
+In company 2:
+`What billing type does this customer use?`
 
 Expected:
 
@@ -67,7 +74,8 @@ Expected:
 
 ### 5) Temporal fact validity
 
-Prompt: `From April 1st to April 30th, support hours are 08:00 to 14:00.`
+Prompt:
+`From April 1st to April 30th, support hours are 08:00 to 14:00.`
 
 Then ask:
 
@@ -90,9 +98,11 @@ Expected:
 
 ### 7) Odoo source-of-truth on conflicts
 
-Prompt: `Remember that invoice X is paid.`
+Prompt:
+`Remember that invoice X is paid.`
 
-Then: `Confirm the real status of invoice X in Odoo.`
+Then:
+`Confirm the real status of invoice X in Odoo.`
 
 Expected:
 

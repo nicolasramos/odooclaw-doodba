@@ -62,6 +62,14 @@ See full instructions in:
 
 - `docs/ODOOCLAW_QUICKSTART.md`
 
+## Keeping upstreams updated
+
+- Doodba scaffold: run `copier update`.
+- OdooClaw core: run `scripts/update-odooclaw-core.sh`.
+
+See `docs/ODOOCLAW_CORE_UPDATES.md` for the full workflow and the project-specific files
+that must be preserved.
+
 ## Upstream references
 
 This project is based on Doodba scaffolding. Check upstream docs:

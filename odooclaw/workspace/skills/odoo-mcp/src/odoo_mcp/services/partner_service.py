@@ -1,17 +1,18 @@
+from typing import Optional
 from odoo_mcp.core.client import OdooClient
 from odoo_mcp.observability.logging import get_logger
 
 _logger = get_logger("partner_service")
 
 
-def _normalize_partner_name(name: str | None) -> str | None:
+def _normalize_partner_name(name: Optional[str]) -> Optional[str]:
     if not name:
         return None
     normalized = " ".join(name.split())
     return normalized or None
 
 
-def _search_partner_id(client: OdooClient, user_id: int, domain: list) -> int | None:
+def _search_partner_id(client: OdooClient, user_id: int, domain: list) -> Optional[int]:
     partners = client.call_kw(
         "res.partner",
         "search_read",
@@ -27,11 +28,11 @@ def _search_partner_id(client: OdooClient, user_id: int, domain: list) -> int | 
 def find_existing_partner_id(
     client: OdooClient,
     user_id: int,
-    name: str | None = None,
-    vat: str | None = None,
-    email: str | None = None,
+    name: Optional[str] = None,
+    vat: Optional[str] = None,
+    email: Optional[str] = None,
     allow_fuzzy_name: bool = False,
-) -> int | None:
+) -> Optional[int]:
     normalized_name = _normalize_partner_name(name)
 
     if vat:
@@ -61,9 +62,9 @@ def find_partner(
     client: OdooClient,
     user_id: int,
     name: str,
-    vat: str | None = None,
-    email: str | None = None,
-) -> int | None:
+    vat: Optional[str] = None,
+    email: Optional[str] = None,
+) -> Optional[int]:
     partner_id = find_existing_partner_id(
         client,
         user_id,
@@ -81,8 +82,8 @@ def find_or_create_partner(
     client: OdooClient,
     user_id: int,
     name: str,
-    vat: str | None = None,
-    email: str | None = None,
+    vat: Optional[str] = None,
+    email: Optional[str] = None,
 ) -> int:
     partner_id = find_existing_partner_id(
         client,

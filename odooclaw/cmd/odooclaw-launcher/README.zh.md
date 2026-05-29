@@ -1,19 +1,16 @@
 # OdooClaw Launcher
 
-> [!WARNING] 该项目属于临时解决方案，后续会重构并提供完整的 Web 服务，因此该目录下的接口
-> 并不稳定。
+> [!WARNING]
+> 该项目属于临时解决方案，后续会重构并提供完整的 Web 服务，因此该目录下的接口并不稳定。
 
 OdooClaw 的独立启动器，提供可视化 JSON 配置编辑和 OAuth Provider 认证管理。
 
 ## 功能
 
 - 📝 **配置编辑** — 侧边栏式设置 UI，支持模型管理、通道配置表单和原始 JSON 编辑器
-- 🤖 **模型管理** — 模型卡片网格，可用性状态显示（无 API Key 时灰色），主模型选择，增删
-  改查，必填/选填字段分离
-- 📡 **通道配置** — 12 种通道类型（Telegram、Discord、Slack、企业微信、钉钉、飞书
-  、LINE、WhatsApp、QQ、OneBot、MaixCAM 等）的表单化配置，附带文档链接
-- 🔐 **Provider 认证** — 支持 OpenAI (Device Code)、Anthropic (API Token)、Google
-  Antigravity (Browser OAuth) 登录
+- 🤖 **模型管理** — 模型卡片网格，可用性状态显示（无 API Key 时灰色），主模型选择，增删改查，必填/选填字段分离
+- 📡 **通道配置** — 12 种通道类型（Telegram、Discord、Slack、企业微信、钉钉、飞书、LINE、WhatsApp、QQ、OneBot、MaixCAM 等）的表单化配置，附带文档链接
+- 🔐 **Provider 认证** — 支持 OpenAI (Device Code)、Anthropic (API Token)、Google Antigravity (Browser OAuth) 登录
 - 🌐 **嵌入式前端** — 编译为单一二进制文件，无需额外依赖
 - 🌍 **国际化** — 中英文切换，首次访问自动检测浏览器语言
 - 🎨 **主题** — 亮色 / 暗色 / 跟随系统，偏好保存在 localStorage
@@ -85,7 +82,7 @@ Base URL: `http://localhost:18800`
 
 ```json
 {
-  "agents": {"defaults": {"model_name": "gpt-5.2"}},
+  "agents": { "defaults": { "model_name": "gpt-5.2" } },
   "model_list": [
     {
       "model_name": "gpt-5.2",
@@ -99,7 +96,7 @@ Base URL: `http://localhost:18800`
 **Response** `200 OK`
 
 ```json
-{"status": "ok"}
+{ "status": "ok" }
 ```
 
 **Error** `400 Bad Request` — 无效 JSON
@@ -147,7 +144,7 @@ Base URL: `http://localhost:18800`
 **Request Body** — `application/json`
 
 ```json
-{"provider": "openai"}
+{ "provider": "openai" }
 ```
 
 支持的 `provider` 值: `openai` | `anthropic` | `google-antigravity`
@@ -165,21 +162,20 @@ Base URL: `http://localhost:18800`
 }
 ```
 
-用户在浏览器中打开 `device_url` 并输入 `user_code`。认证完成后通过
-`GET /api/auth/status` 的 `pending_device.status` 变为 `success` 通知前端。
+用户在浏览器中打开 `device_url` 并输入 `user_code`。认证完成后通过 `GET /api/auth/status` 的 `pending_device.status` 变为 `success` 通知前端。
 
 ##### Anthropic (API Token)
 
 需在请求中附带 token：
 
 ```json
-{"provider": "anthropic", "token": "sk-ant-xxx"}
+{ "provider": "anthropic", "token": "sk-ant-xxx" }
 ```
 
 **Response:**
 
 ```json
-{"status": "success", "message": "Anthropic token saved"}
+{ "status": "success", "message": "Anthropic token saved" }
 ```
 
 ##### Google Antigravity (Browser OAuth)
@@ -194,8 +190,7 @@ Base URL: `http://localhost:18800`
 }
 ```
 
-认证完成后 Google 回调至 `GET /auth/callback`，自动保存凭据并重定向回 odooclaw-config 页
-面。
+认证完成后 Google 回调至 `GET /auth/callback`，自动保存凭据并重定向回 odooclaw-config 页面。
 
 ---
 
@@ -206,7 +201,7 @@ Base URL: `http://localhost:18800`
 **Request Body** — `application/json`
 
 ```json
-{"provider": "openai"}
+{ "provider": "openai" }
 ```
 
 传空字符串或省略 `provider` 则登出所有 Provider。
@@ -214,18 +209,16 @@ Base URL: `http://localhost:18800`
 **Response** `200 OK`
 
 ```json
-{"status": "ok"}
+{ "status": "ok" }
 ```
 
 ---
 
 #### GET /auth/callback
 
-OAuth Browser 回调端点（Google Antigravity 专用），由 OAuth Provider 重定向调用，**非前
-端直接使用**。
+OAuth Browser 回调端点（Google Antigravity 专用），由 OAuth Provider 重定向调用，**非前端直接使用**。
 
 **Query Parameters:**
-
 - `state` — OAuth state 校验
 - `code` — 授权码
 

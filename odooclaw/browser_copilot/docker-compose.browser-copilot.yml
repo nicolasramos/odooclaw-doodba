@@ -12,6 +12,7 @@ services:
     volumes:
       - ../../:/workspace
     command: >
-      sh -lc " pip install --no-cache-dir -r
-      /workspace/odooclaw/browser_copilot/requirements.txt && uvicorn
-      browser_copilot.app:app --host 0.0.0.0 --port 8765 --app-dir /workspace/odooclaw "
+      sh -lc "
+      pip install --no-cache-dir -r /workspace/odooclaw/browser_copilot/requirements.txt &&
+      uvicorn browser_copilot.app:app --host 0.0.0.0 --port 8765 --app-dir /workspace/odooclaw
+      "

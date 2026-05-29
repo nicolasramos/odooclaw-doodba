@@ -13,8 +13,8 @@
     {
       "model_name": "gpt4",
       "model": "openai/gpt-5.2",
-      "api_key": "${OPENAI_API_KEY}",
-      "api_base": "${OPENAI_API_BASE}"
+      "api_key": "sk-your-openai-key",
+      "api_base": "https://api.openai.com/v1"
     },
     {
       "model_name": "claude-sonnet-4.6",
@@ -61,7 +61,9 @@
       "token": "YOUR_TELEGRAM_BOT_TOKEN",
       "base_url": "",
       "proxy": "",
-      "allow_from": ["YOUR_USER_ID"],
+      "allow_from": [
+        "YOUR_USER_ID"
+      ],
       "reasoning_channel_id": ""
     },
     "discord": {
@@ -275,7 +277,10 @@
         "odoo-manager": {
           "enabled": true,
           "command": "python3",
-          "args": ["-m", "odoo_mcp.server"],
+          "args": [
+            "-m",
+            "odoo_mcp.server"
+          ],
           "env": {
             "PYTHONUNBUFFERED": "1"
           }
@@ -318,12 +323,19 @@
         "filesystem": {
           "enabled": false,
           "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-filesystem",
+            "/tmp"
+          ]
         },
         "github": {
           "enabled": false,
           "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-github"],
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-github"
+          ],
           "env": {
             "GITHUB_PERSONAL_ACCESS_TOKEN": "YOUR_GITHUB_TOKEN"
           }
@@ -331,7 +343,10 @@
         "brave-search": {
           "enabled": false,
           "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-brave-search"
+          ],
           "env": {
             "BRAVE_API_KEY": "YOUR_BRAVE_API_KEY"
           }
@@ -348,7 +363,10 @@
         "slack": {
           "enabled": false,
           "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-slack"],
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-slack"
+          ],
           "env": {
             "SLACK_BOT_TOKEN": "YOUR_SLACK_BOT_TOKEN",
             "SLACK_TEAM_ID": "YOUR_SLACK_TEAM_ID"

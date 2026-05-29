@@ -1,14 +1,13 @@
-from unittest.mock import MagicMock
-
 import pytest
+from unittest.mock import MagicMock
 from odoo_mcp.core.client import OdooClient
+from odoo_mcp.services.partner_service import get_partner_summary
 from odoo_mcp.services.chatter_service import (
     create_activity,
     list_pending_activities,
     mark_activity_done,
     post_chatter_message,
 )
-from odoo_mcp.services.partner_service import get_partner_summary
 
 
 @pytest.fixture

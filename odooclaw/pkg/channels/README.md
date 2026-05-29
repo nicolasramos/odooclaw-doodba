@@ -1,7 +1,6 @@
 # OdooClaw Channel System: Complete Development Guide
 
-> **Scope**: `pkg/channels/`, `pkg/bus/`, `pkg/media/`, `pkg/identity/`,
-> `cmd/odooclaw/internal/gateway/`
+> **Scope**: `pkg/channels/`, `pkg/bus/`, `pkg/media/`, `pkg/identity/`, `cmd/odooclaw/internal/gateway/`
 
 ---
 
@@ -108,14 +107,14 @@ pkg/identity/
 
 ### 1.3 Key Design Principles
 
-| Principle                     | Description                                                                                                                                                                                                                        |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Sub-package Isolation**     | Each channel is a standalone Go sub-package, depending on `BaseChannel` and interfaces from the `channels` parent package                                                                                                          |
-| **Factory Registration**      | Sub-packages self-register via `init()`, Manager looks up factories by name, eliminating import coupling                                                                                                                           |
-| **Capability Discovery**      | Optional capabilities are declared via interfaces (`MediaSender`, `TypingCapable`, `ReactionCapable`, `PlaceholderCapable`, `MessageEditor`, `WebhookHandler`, `HealthChecker`), discovered by Manager via runtime type assertions |
-| **Structured Messages**       | Peer, MessageID, and SenderInfo promoted from Metadata to first-class fields on InboundMessage                                                                                                                                     |
-| **Error Classification**      | Channels return sentinel errors (`ErrRateLimit`, `ErrTemporary`, etc.), Manager uses these to determine retry strategy                                                                                                             |
-| **Centralized Orchestration** | Rate limiting, message splitting, retries, and Typing/Reaction/Placeholder management are all handled by Manager and BaseChannel; channels only need to implement Send                                                             |
+| Principle | Description |
+|-----------|-------------|
+| **Sub-package Isolation** | Each channel is a standalone Go sub-package, depending on `BaseChannel` and interfaces from the `channels` parent package |
+| **Factory Registration** | Sub-packages self-register via `init()`, Manager looks up factories by name, eliminating import coupling |
+| **Capability Discovery** | Optional capabilities are declared via interfaces (`MediaSender`, `TypingCapable`, `ReactionCapable`, `PlaceholderCapable`, `MessageEditor`, `WebhookHandler`, `HealthChecker`), discovered by Manager via runtime type assertions |
+| **Structured Messages** | Peer, MessageID, and SenderInfo promoted from Metadata to first-class fields on InboundMessage |
+| **Error Classification** | Channels return sentinel errors (`ErrRateLimit`, `ErrTemporary`, etc.), Manager uses these to determine retry strategy |
+| **Centralized Orchestration** | Rate limiting, message splitting, retries, and Typing/Reaction/Placeholder management are all handled by Manager and BaseChannel; channels only need to implement Send |
 
 ---
 
@@ -126,34 +125,31 @@ pkg/identity/
 #### Step 1: Identify which files you modified
 
 On the main branch, channel files were directly in `pkg/channels/` top level, e.g.:
-
 - `pkg/channels/telegram.go`
 - `pkg/channels/discord.go`
 
-After refactoring, these files have been removed and code moved to corresponding
-sub-packages:
-
+After refactoring, these files have been removed and code moved to corresponding sub-packages:
 - `pkg/channels/telegram/telegram.go`
 - `pkg/channels/discord/discord.go`
 
 #### Step 2: Understand the structural change mapping
 
-| main branch file           | Refactored branch location                      | Changes                                            |
-| -------------------------- | ----------------------------------------------- | -------------------------------------------------- |
+| main branch file | Refactored branch location | Changes |
+|---|---|---|
 | `pkg/channels/telegram.go` | `pkg/channels/telegram/telegram.go` + `init.go` | Package name changed from `channels` to `telegram` |
-| `pkg/channels/discord.go`  | `pkg/channels/discord/discord.go` + `init.go`   | Same as above                                      |
-| `pkg/channels/manager.go`  | `pkg/channels/manager.go`                       | Extensively rewritten                              |
-| _(did not exist)_          | `pkg/channels/base.go`                          | New shared abstraction layer                       |
-| _(did not exist)_          | `pkg/channels/registry.go`                      | New factory registry                               |
-| _(did not exist)_          | `pkg/channels/errors.go` + `errutil.go`         | New error classification system                    |
-| _(did not exist)_          | `pkg/channels/interfaces.go`                    | New optional capability interfaces                 |
-| _(did not exist)_          | `pkg/channels/media.go`                         | New MediaSender interface                          |
-| _(did not exist)_          | `pkg/channels/webhook.go`                       | New WebhookHandler/HealthChecker                   |
-| _(did not exist)_          | `pkg/channels/whatsapp_native/`                 | New WhatsApp native mode (whatsmeow)               |
-| _(did not exist)_          | `pkg/channels/split.go`                         | New message splitting (migrated from utils)        |
-| _(did not exist)_          | `pkg/bus/types.go`                              | New structured message types                       |
-| _(did not exist)_          | `pkg/media/store.go`                            | New media file lifecycle management                |
-| _(did not exist)_          | `pkg/identity/identity.go`                      | New unified user identity                          |
+| `pkg/channels/discord.go` | `pkg/channels/discord/discord.go` + `init.go` | Same as above |
+| `pkg/channels/manager.go` | `pkg/channels/manager.go` | Extensively rewritten |
+| _(did not exist)_ | `pkg/channels/base.go` | New shared abstraction layer |
+| _(did not exist)_ | `pkg/channels/registry.go` | New factory registry |
+| _(did not exist)_ | `pkg/channels/errors.go` + `errutil.go` | New error classification system |
+| _(did not exist)_ | `pkg/channels/interfaces.go` | New optional capability interfaces |
+| _(did not exist)_ | `pkg/channels/media.go` | New MediaSender interface |
+| _(did not exist)_ | `pkg/channels/webhook.go` | New WebhookHandler/HealthChecker |
+| _(did not exist)_ | `pkg/channels/whatsapp_native/` | New WhatsApp native mode (whatsmeow) |
+| _(did not exist)_ | `pkg/channels/split.go` | New message splitting (migrated from utils) |
+| _(did not exist)_ | `pkg/bus/types.go` | New structured message types |
+| _(did not exist)_ | `pkg/media/store.go` | New media file lifecycle management |
+| _(did not exist)_ | `pkg/identity/identity.go` | New unified user identity |
 
 #### Step 3: Migrate your channel code
 
@@ -378,35 +374,29 @@ if !c.IsAllowedSender(sender) { return }
 if !c.IsAllowed(senderID) { return }
 ```
 
-`BaseChannel.HandleMessage` already handles this logic internally — no need to duplicate
-the check in your channel.
+`BaseChannel.HandleMessage` already handles this logic internally — no need to duplicate the check in your channel.
 
 ### 2.2 If You Have Manager Modifications
 
-The Manager has been completely rewritten. Your modifications will need to account for
-the new architecture:
+The Manager has been completely rewritten. Your modifications will need to account for the new architecture:
 
-| Old Manager Responsibility                   | New Manager Responsibility                                                                                                                                   |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Directly construct channels (switch/if-else) | Look up and construct via factory registry                                                                                                                   |
-| Directly call channel.Send                   | Per-channel Worker queues + rate limiting + retries                                                                                                          |
-| No message splitting                         | Automatic splitting based on MaxMessageLength                                                                                                                |
-| Each channel runs its own HTTP server        | Unified shared HTTP server                                                                                                                                   |
-| No Typing/Placeholder management             | Unified preSend handles Typing stop + Reaction undo + Placeholder edit; inbound-side BaseChannel.HandleMessage auto-orchestrates Typing/Reaction/Placeholder |
-| No TTL cleanup                               | runTTLJanitor periodically cleans up expired Typing/Reaction/Placeholder entries                                                                             |
+| Old Manager Responsibility | New Manager Responsibility |
+|---|---|
+| Directly construct channels (switch/if-else) | Look up and construct via factory registry |
+| Directly call channel.Send | Per-channel Worker queues + rate limiting + retries |
+| No message splitting | Automatic splitting based on MaxMessageLength |
+| Each channel runs its own HTTP server | Unified shared HTTP server |
+| No Typing/Placeholder management | Unified preSend handles Typing stop + Reaction undo + Placeholder edit; inbound-side BaseChannel.HandleMessage auto-orchestrates Typing/Reaction/Placeholder |
+| No TTL cleanup | runTTLJanitor periodically cleans up expired Typing/Reaction/Placeholder entries |
 
 ### 2.3 If You Have Agent Loop Modifications
 
 Main changes to the Agent Loop:
 
-1. **MediaStore injection**: `agentLoop.SetMediaStore(mediaStore)` — Agent resolves
-   media references produced by tools via MediaStore
-2. **ChannelManager injection**: `agentLoop.SetChannelManager(channelManager)` — Agent
-   can query channel state
-3. **OutboundMediaMessage**: Agent now sends media messages via
-   `bus.PublishOutboundMedia()` instead of embedding them in text replies
-4. **extractPeer**: Routing uses `msg.Peer` structured fields instead of Metadata
-   lookups
+1. **MediaStore injection**: `agentLoop.SetMediaStore(mediaStore)` — Agent resolves media references produced by tools via MediaStore
+2. **ChannelManager injection**: `agentLoop.SetChannelManager(channelManager)` — Agent can query channel state
+3. **OutboundMediaMessage**: Agent now sends media messages via `bus.PublishOutboundMedia()` instead of embedding them in text replies
+4. **extractPeer**: Routing uses `msg.Peer` structured fields instead of Metadata lookups
 
 ---
 
@@ -598,8 +588,7 @@ func (c *MatrixChannel) sendToMatrix(ctx context.Context, roomID, content string
 
 ### 3.3 Optional Capability Interfaces
 
-Depending on platform capabilities, your channel can optionally implement the following
-interfaces:
+Depending on platform capabilities, your channel can optionally implement the following interfaces:
 
 #### MediaSender — Send Media Attachments
 
@@ -738,10 +727,7 @@ func (c *MatrixChannel) HealthHandler(w http.ResponseWriter, r *http.Request) {
 
 ### 3.4 Inbound-side Typing/Reaction/Placeholder Auto-orchestration
 
-`BaseChannel.HandleMessage` automatically detects whether the channel implements
-`TypingCapable`, `ReactionCapable`, and/or `PlaceholderCapable` **before** publishing
-the inbound message, and triggers the corresponding indicators. The three pipelines are
-completely independent and do not interfere with each other:
+`BaseChannel.HandleMessage` automatically detects whether the channel implements `TypingCapable`, `ReactionCapable`, and/or `PlaceholderCapable` **before** publishing the inbound message, and triggers the corresponding indicators. The three pipelines are completely independent and do not interfere with each other:
 
 ```go
 // Automatically executed inside BaseChannel.HandleMessage (no manual calls needed):
@@ -768,30 +754,19 @@ if c.owner != nil && c.placeholderRecorder != nil {
 ```
 
 **This means**:
+- Channels implementing `TypingCapable` (Telegram, Discord, LINE, Pico) do not need to manually call `StartTyping` + `RecordTypingStop` in `handleMessage`
+- Channels implementing `ReactionCapable` (Slack, OneBot) do not need to manually call `AddReaction` + `RecordTypingStop` in `handleMessage`
+- Channels implementing `PlaceholderCapable` (Telegram, Discord, Pico) do not need to manually send placeholder messages and call `RecordPlaceholder` in `handleMessage`
+- Channels only need to implement the corresponding interface; `HandleMessage` handles orchestration automatically
+- Channels that don't implement these interfaces are unaffected (type assertions will fail and be skipped)
+- `PlaceholderCapable`'s `SendPlaceholder` method internally decides whether to send based on the configured `PlaceholderConfig.Enabled`; returning `("", nil)` skips registration
 
-- Channels implementing `TypingCapable` (Telegram, Discord, LINE, Pico) do not need to
-  manually call `StartTyping` + `RecordTypingStop` in `handleMessage`
-- Channels implementing `ReactionCapable` (Slack, OneBot) do not need to manually call
-  `AddReaction` + `RecordTypingStop` in `handleMessage`
-- Channels implementing `PlaceholderCapable` (Telegram, Discord, Pico) do not need to
-  manually send placeholder messages and call `RecordPlaceholder` in `handleMessage`
-- Channels only need to implement the corresponding interface; `HandleMessage` handles
-  orchestration automatically
-- Channels that don't implement these interfaces are unaffected (type assertions will
-  fail and be skipped)
-- `PlaceholderCapable`'s `SendPlaceholder` method internally decides whether to send
-  based on the configured `PlaceholderConfig.Enabled`; returning `("", nil)` skips
-  registration
-
-**Owner Injection**: Manager automatically calls `SetOwner(ch)` in `initChannel` to
-inject the concrete channel into BaseChannel — no manual setup required from developers.
+**Owner Injection**: Manager automatically calls `SetOwner(ch)` in `initChannel` to inject the concrete channel into BaseChannel — no manual setup required from developers.
 
 When the Agent finishes processing a message, Manager's `preSend` automatically:
-
 1. Calls the recorded `stop()` to stop Typing
 2. Calls the recorded `undo()` to undo Reaction
-3. If there is a Placeholder and the channel implements `MessageEditor`, attempts to
-   edit the Placeholder with the final reply (skipping Send)
+3. If there is a Placeholder and the channel implements `MessageEditor`, attempts to edit the Placeholder with the final reply (skipping Send)
 
 ### 3.5 Register Configuration and Gateway Integration
 
@@ -823,9 +798,7 @@ if m.config.Channels.Matrix.Enabled && m.config.Channels.Matrix.Token != "" {
 }
 ```
 
-> **Note**: If your channel has multiple modes (like WhatsApp Bridge vs Native), branch
-> in initChannels based on config:
->
+> **Note**: If your channel has multiple modes (like WhatsApp Bridge vs Native), branch in initChannels based on config:
 > ```go
 > if cfg.UseNative {
 >     m.initChannel("whatsapp_native", "WhatsApp Native")
@@ -863,21 +836,19 @@ type MessageBus struct {
 
 **Key Behaviors**:
 
-| Method                           | Behavior                                                                                                                           |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `PublishInbound(ctx, msg)`       | Check closed → send to inbound channel → block/timeout/close                                                                       |
-| `ConsumeInbound(ctx)`            | Read from inbound → block/close/cancel                                                                                             |
-| `PublishOutbound(ctx, msg)`      | Send to outbound channel                                                                                                           |
-| `SubscribeOutbound(ctx)`         | Read from outbound (called by Manager dispatcher)                                                                                  |
-| `PublishOutboundMedia(ctx, msg)` | Send to outboundMedia channel                                                                                                      |
-| `SubscribeOutboundMedia(ctx)`    | Read from outboundMedia (called by Manager media dispatcher)                                                                       |
-| `Close()`                        | CAS close → close(done) → drain all channels (**does not close the channels themselves** to avoid concurrent send-on-closed panic) |
+| Method | Behavior |
+|--------|----------|
+| `PublishInbound(ctx, msg)` | Check closed → send to inbound channel → block/timeout/close |
+| `ConsumeInbound(ctx)` | Read from inbound → block/close/cancel |
+| `PublishOutbound(ctx, msg)` | Send to outbound channel |
+| `SubscribeOutbound(ctx)` | Read from outbound (called by Manager dispatcher) |
+| `PublishOutboundMedia(ctx, msg)` | Send to outboundMedia channel |
+| `SubscribeOutboundMedia(ctx)` | Read from outboundMedia (called by Manager media dispatcher) |
+| `Close()` | CAS close → close(done) → drain all channels (**does not close the channels themselves** to avoid concurrent send-on-closed panic) |
 
 **Design Notes**:
-
 - Buffer size increased from 16 to 64 to reduce blocking under burst load
-- `Close()` does not close the underlying channels (only closes the `done` signal
-  channel), because there may be concurrent `Publish` goroutines
+- `Close()` does not close the underlying channels (only closes the `done` signal channel), because there may be concurrent `Publish` goroutines
 - Drain loop ensures buffered messages are not silently dropped
 
 ### 4.2 Structured Message Types
@@ -943,23 +914,22 @@ type MediaPart struct {
 
 **File**: `pkg/channels/base.go`
 
-BaseChannel is the shared abstraction layer for all channels, providing the following
-capabilities:
+BaseChannel is the shared abstraction layer for all channels, providing the following capabilities:
 
-| Method/Feature                                              | Description                                                                                                                       |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `Name() string`                                             | Channel name                                                                                                                      |
-| `IsRunning() bool`                                          | Atomically read running state                                                                                                     |
-| `SetRunning(bool)`                                          | Atomically set running state                                                                                                      |
-| `MaxMessageLength() int`                                    | Message length limit (rune count), 0 = unlimited                                                                                  |
-| `ReasoningChannelID() string`                               | Reasoning chain routing target channel ID (empty = no routing)                                                                    |
-| `IsAllowed(senderID string) bool`                           | Legacy allow-list check (supports `"id\|username"` and `"@username"` formats)                                                     |
-| `IsAllowedSender(sender SenderInfo) bool`                   | New allow-list check (delegates to `identity.MatchAllowed`)                                                                       |
-| `ShouldRespondInGroup(isMentioned, content) (bool, string)` | Unified group chat trigger filtering logic                                                                                        |
-| `HandleMessage(...)`                                        | Unified inbound message handling: permission check → build MediaScope → auto-trigger Typing/Reaction/Placeholder → publish to Bus |
-| `SetMediaStore(s) / GetMediaStore()`                        | MediaStore injected by Manager                                                                                                    |
-| `SetPlaceholderRecorder(r) / GetPlaceholderRecorder()`      | PlaceholderRecorder injected by Manager                                                                                           |
-| `SetOwner(ch)`                                              | Concrete channel reference injected by Manager (used for Typing/Reaction/Placeholder type assertions in HandleMessage)            |
+| Method/Feature | Description |
+|---|---|
+| `Name() string` | Channel name |
+| `IsRunning() bool` | Atomically read running state |
+| `SetRunning(bool)` | Atomically set running state |
+| `MaxMessageLength() int` | Message length limit (rune count), 0 = unlimited |
+| `ReasoningChannelID() string` | Reasoning chain routing target channel ID (empty = no routing) |
+| `IsAllowed(senderID string) bool` | Legacy allow-list check (supports `"id\|username"` and `"@username"` formats) |
+| `IsAllowedSender(sender SenderInfo) bool` | New allow-list check (delegates to `identity.MatchAllowed`) |
+| `ShouldRespondInGroup(isMentioned, content) (bool, string)` | Unified group chat trigger filtering logic |
+| `HandleMessage(...)` | Unified inbound message handling: permission check → build MediaScope → auto-trigger Typing/Reaction/Placeholder → publish to Bus |
+| `SetMediaStore(s) / GetMediaStore()` | MediaStore injected by Manager |
+| `SetPlaceholderRecorder(r) / GetPlaceholderRecorder()` | PlaceholderRecorder injected by Manager |
+| `SetOwner(ch)` | Concrete channel reference injected by Manager (used for Typing/Reaction/Placeholder type assertions in HandleMessage) |
 
 **Functional Options**:
 
@@ -980,9 +950,7 @@ func RegisterFactory(name string, f ChannelFactory)   // Called in sub-package i
 func getFactory(name string) (ChannelFactory, bool)    // Called internally by Manager
 ```
 
-The factory registry is protected by `sync.RWMutex` and registrations occur during
-`init()` phase (completed at process startup). Manager looks up factories by name in
-`initChannel()` and calls them.
+The factory registry is protected by `sync.RWMutex` and registrations occur during `init()` phase (completed at process startup). Manager looks up factories by name in `initChannel()` and calls them.
 
 ### 4.5 Error Classification and Retries
 
@@ -1120,7 +1088,6 @@ Manager {
 ```
 
 TTL Cleanup:
-
 - Typing stop functions: 5-minute TTL (auto-calls stop and deletes on expiry)
 - Reaction undo functions: 5-minute TTL (auto-calls undo and deletes on expiry)
 - Placeholder IDs: 10-minute TTL (deletes on expiry)
@@ -1133,15 +1100,13 @@ TTL Cleanup:
 `SplitMessage(content string, maxLen int) []string`
 
 Smart splitting strategy:
-
-1. Calculate effective split point = maxLen - 10% buffer (to reserve space for code
-   block closure)
+1. Calculate effective split point = maxLen - 10% buffer (to reserve space for code block closure)
 2. Prefer splitting at newlines
 3. Otherwise split at spaces/tabs
 4. Detect unclosed code blocks (` ``` `)
 5. If a code block is unclosed:
    - Attempt to extend to maxLen to include the closing fence
-   - If the code block is too long, inject close/reopen fences (` \n```\n ` + header)
+   - If the code block is too long, inject close/reopen fences (`\n```\n` + header)
    - Last resort: split before the code block starts
 
 ### 4.8 MediaStore
@@ -1158,7 +1123,6 @@ type MediaStore interface {
 ```
 
 **FileMediaStore Implementation**:
-
 - Pure in-memory mapping, no file copy/move
 - Reference format: `media://<uuid>`
 - Scope format: `channel:chatID:messageID` (generated by `BuildMediaScope`)
@@ -1166,8 +1130,7 @@ type MediaStore interface {
   - Phase 1 (holding lock): collect and delete entries from map
   - Phase 2 (no lock): delete files from disk
   - Purpose: minimize lock contention
-- **TTL Cleanup**: `NewFileMediaStoreWithCleanup` → `Start()` launches background
-  cleanup goroutine
+- **TTL Cleanup**: `NewFileMediaStoreWithCleanup` → `Start()` launches background cleanup goroutine
 - Cleanup interval and max TTL are controlled by configuration
 
 ### 4.9 Identity
@@ -1186,17 +1149,19 @@ func ParseCanonicalID(canonical string) (platform, id string, ok bool)
 func MatchAllowed(sender bus.SenderInfo, allowed string) bool
 ```
 
-`MatchAllowed` supported allow-list formats: | Format | Matching | |--------|----------|
-| `"123456"` | Matches `sender.PlatformID` | | `"@alice"` | Matches `sender.Username` |
-| `"123456\|alice"` | Matches PlatformID or Username (legacy format compatibility) | |
-`"telegram:123456"` | Exact match on `sender.CanonicalID` (new format) |
+`MatchAllowed` supported allow-list formats:
+| Format | Matching |
+|--------|----------|
+| `"123456"` | Matches `sender.PlatformID` |
+| `"@alice"` | Matches `sender.Username` |
+| `"123456\|alice"` | Matches PlatformID or Username (legacy format compatibility) |
+| `"telegram:123456"` | Exact match on `sender.CanonicalID` (new format) |
 
 ### 4.10 Shared HTTP Server
 
 **File**: `pkg/channels/manager.go`'s `SetupHTTPServer`
 
 Manager creates a single `http.Server` and auto-discovers and registers:
-
 - Channels implementing `WebhookHandler` → mounted at `wh.WebhookPath()`
 - Channels implementing `HealthChecker` → mounted at `hc.HealthPath()`
 - Global health endpoint registered by `health.Server.RegisterOnMux`
@@ -1209,47 +1174,26 @@ Timeout configuration: ReadTimeout = 30s, WriteTimeout = 30s
 
 ### 5.1 Mandatory Conventions
 
-1. **Error classification is a contract**: A channel's `Send` method **must** return
-   sentinel errors (or wrap them). Manager's retry strategy relies entirely on
-   `errors.Is` checks. Returning unclassified errors will cause Manager to treat them as
-   "unknown errors" (exponential backoff retry).
+1. **Error classification is a contract**: A channel's `Send` method **must** return sentinel errors (or wrap them). Manager's retry strategy relies entirely on `errors.Is` checks. Returning unclassified errors will cause Manager to treat them as "unknown errors" (exponential backoff retry).
 
-2. **SetRunning is a lifecycle signal**: **Must** call `c.SetRunning(true)` after
-   successful `Start`, and **must** call `c.SetRunning(false)` at the beginning of
-   `Stop`. **Must** check `c.IsRunning()` in `Send` and return `ErrNotRunning`.
+2. **SetRunning is a lifecycle signal**: **Must** call `c.SetRunning(true)` after successful `Start`, and **must** call `c.SetRunning(false)` at the beginning of `Stop`. **Must** check `c.IsRunning()` in `Send` and return `ErrNotRunning`.
 
-3. **HandleMessage includes permission checks**: Do not perform your own permission
-   checks before calling `HandleMessage` (unless you need platform-specific
-   preprocessing before the check). `HandleMessage` already calls
-   `IsAllowedSender`/`IsAllowed` internally.
+3. **HandleMessage includes permission checks**: Do not perform your own permission checks before calling `HandleMessage` (unless you need platform-specific preprocessing before the check). `HandleMessage` already calls `IsAllowedSender`/`IsAllowed` internally.
 
-4. **Message splitting is handled by Manager**: A channel's `Send` method does not need
-   to handle long message splitting. Manager automatically splits based on
-   `MaxMessageLength()` before calling `Send`. Channels only need to declare the limit
-   via `WithMaxMessageLength`.
+4. **Message splitting is handled by Manager**: A channel's `Send` method does not need to handle long message splitting. Manager automatically splits based on `MaxMessageLength()` before calling `Send`. Channels only need to declare the limit via `WithMaxMessageLength`.
 
-5. **Typing/Reaction/Placeholder is handled by BaseChannel + Manager automatically**: A
-   channel's `Send` method does not need to manage Typing stop, Reaction undo, or
-   Placeholder editing. `BaseChannel.HandleMessage` auto-triggers `TypingCapable`,
-   `ReactionCapable`, and `PlaceholderCapable` on the inbound side (via `owner` type
-   assertions); Manager's `preSend` auto-stops Typing, undoes Reaction, and edits
-   Placeholder on the outbound side. Channels only need to implement the corresponding
-   interfaces.
+5. **Typing/Reaction/Placeholder is handled by BaseChannel + Manager automatically**: A channel's `Send` method does not need to manage Typing stop, Reaction undo, or Placeholder editing. `BaseChannel.HandleMessage` auto-triggers `TypingCapable`, `ReactionCapable`, and `PlaceholderCapable` on the inbound side (via `owner` type assertions); Manager's `preSend` auto-stops Typing, undoes Reaction, and edits Placeholder on the outbound side. Channels only need to implement the corresponding interfaces.
 
-6. **Factory registration belongs in init()**: Each sub-package must have an `init.go`
-   file calling `channels.RegisterFactory`. Gateway must trigger registration via blank
-   imports (`_ "pkg/channels/xxx"`).
+6. **Factory registration belongs in init()**: Each sub-package must have an `init.go` file calling `channels.RegisterFactory`. Gateway must trigger registration via blank imports (`_ "pkg/channels/xxx"`).
 
 ### 5.2 Metadata Field Usage Conventions
 
 **Do NOT put the following information in Metadata anymore**:
-
 - `peer_kind` / `peer_id` → Use `InboundMessage.Peer`
 - `message_id` → Use `InboundMessage.MessageID`
 - `sender_platform` / `sender_username` → Use `InboundMessage.Sender`
 
 **Metadata should only be used for**:
-
 - Channel-specific extension information (e.g., Telegram's `reply_to_message_id`)
 - Temporary information that doesn't fit into structured fields
 
@@ -1257,8 +1201,7 @@ Timeout configuration: ReadTimeout = 30s, WriteTimeout = 30s
 
 - `BaseChannel.running`: Uses `atomic.Bool`, thread-safe
 - `Manager.channels` / `Manager.workers`: Protected by `sync.RWMutex`
-- `Manager.placeholders` / `Manager.typingStops` / `Manager.reactionUndos`: Uses
-  `sync.Map`
+- `Manager.placeholders` / `Manager.typingStops` / `Manager.reactionUndos`: Uses `sync.Map`
 - `MessageBus.closed`: Uses `atomic.Bool`
 - `FileMediaStore`: Uses `sync.RWMutex`, two-phase operation to minimize lock-hold time
 - Channel Worker queue: Go channel, inherently concurrent-safe
@@ -1266,7 +1209,6 @@ Timeout configuration: ReadTimeout = 30s, WriteTimeout = 30s
 ### 5.4 Testing Conventions
 
 Existing test files:
-
 - `pkg/channels/base_test.go` — BaseChannel unit tests
 - `pkg/channels/manager_test.go` — Manager unit tests
 - `pkg/channels/split_test.go` — Message splitting tests
@@ -1274,7 +1216,6 @@ Existing test files:
 - `pkg/channels/errutil_test.go` — Error classification tests
 
 To add tests for a new channel:
-
 ```bash
 go test ./pkg/channels/matrix/ -v              # Sub-package tests
 go test ./pkg/channels/ -run TestSpecific -v    # Framework tests
@@ -1287,40 +1228,40 @@ make test                                       # Full test suite
 
 ### A.1 Framework Layer Files
 
-| File                         | Responsibility                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------------- |
-| `pkg/channels/base.go`       | BaseChannel struct, Channel interface, MessageLengthProvider, BaseChannelOption, HandleMessage    |
+| File | Responsibility |
+|------|---------------|
+| `pkg/channels/base.go` | BaseChannel struct, Channel interface, MessageLengthProvider, BaseChannelOption, HandleMessage |
 | `pkg/channels/interfaces.go` | TypingCapable, MessageEditor, ReactionCapable, PlaceholderCapable, PlaceholderRecorder interfaces |
-| `pkg/channels/media.go`      | MediaSender interface                                                                             |
-| `pkg/channels/webhook.go`    | WebhookHandler, HealthChecker interfaces                                                          |
-| `pkg/channels/errors.go`     | ErrNotRunning, ErrRateLimit, ErrTemporary, ErrSendFailed sentinels                                |
-| `pkg/channels/errutil.go`    | ClassifySendError, ClassifyNetError helpers                                                       |
-| `pkg/channels/registry.go`   | RegisterFactory, getFactory factory registry                                                      |
-| `pkg/channels/manager.go`    | Manager: Worker queues, rate limiting, retries, preSend, shared HTTP, TTL janitor                 |
-| `pkg/channels/split.go`      | SplitMessage long-message splitting                                                               |
-| `pkg/bus/bus.go`             | MessageBus implementation                                                                         |
-| `pkg/bus/types.go`           | Peer, SenderInfo, InboundMessage, OutboundMessage, OutboundMediaMessage, MediaPart                |
-| `pkg/media/store.go`         | MediaStore interface, FileMediaStore implementation                                               |
-| `pkg/identity/identity.go`   | BuildCanonicalID, ParseCanonicalID, MatchAllowed                                                  |
+| `pkg/channels/media.go` | MediaSender interface |
+| `pkg/channels/webhook.go` | WebhookHandler, HealthChecker interfaces |
+| `pkg/channels/errors.go` | ErrNotRunning, ErrRateLimit, ErrTemporary, ErrSendFailed sentinels |
+| `pkg/channels/errutil.go` | ClassifySendError, ClassifyNetError helpers |
+| `pkg/channels/registry.go` | RegisterFactory, getFactory factory registry |
+| `pkg/channels/manager.go` | Manager: Worker queues, rate limiting, retries, preSend, shared HTTP, TTL janitor |
+| `pkg/channels/split.go` | SplitMessage long-message splitting |
+| `pkg/bus/bus.go` | MessageBus implementation |
+| `pkg/bus/types.go` | Peer, SenderInfo, InboundMessage, OutboundMessage, OutboundMediaMessage, MediaPart |
+| `pkg/media/store.go` | MediaStore interface, FileMediaStore implementation |
+| `pkg/identity/identity.go` | BuildCanonicalID, ParseCanonicalID, MatchAllowed |
 
 ### A.2 Channel Sub-packages
 
-| Sub-package                     | Registered Name     | Optional Interfaces                                                   |
-| ------------------------------- | ------------------- | --------------------------------------------------------------------- |
-| `pkg/channels/telegram/`        | `"telegram"`        | TypingCapable, PlaceholderCapable, MessageEditor, MediaSender         |
-| `pkg/channels/discord/`         | `"discord"`         | TypingCapable, PlaceholderCapable, MessageEditor, MediaSender         |
-| `pkg/channels/slack/`           | `"slack"`           | ReactionCapable, MediaSender                                          |
-| `pkg/channels/line/`            | `"line"`            | TypingCapable, MediaSender, WebhookHandler                            |
-| `pkg/channels/onebot/`          | `"onebot"`          | ReactionCapable, MediaSender                                          |
-| `pkg/channels/dingtalk/`        | `"dingtalk"`        | —                                                                     |
-| `pkg/channels/feishu/`          | `"feishu"`          | — (architecture-specific build tags: `feishu_32.go` / `feishu_64.go`) |
-| `pkg/channels/wecom/`           | `"wecom"`           | WebhookHandler, HealthChecker                                         |
-| `pkg/channels/wecom/`           | `"wecom_app"`       | MediaSender, WebhookHandler, HealthChecker                            |
-| `pkg/channels/qq/`              | `"qq"`              | —                                                                     |
-| `pkg/channels/whatsapp/`        | `"whatsapp"`        | — (Bridge mode)                                                       |
-| `pkg/channels/whatsapp_native/` | `"whatsapp_native"` | — (Native whatsmeow mode)                                             |
-| `pkg/channels/maixcam/`         | `"maixcam"`         | —                                                                     |
-| `pkg/channels/pico/`            | `"pico"`            | TypingCapable, PlaceholderCapable, MessageEditor, WebhookHandler      |
+| Sub-package | Registered Name | Optional Interfaces |
+|-------------|----------------|-------------------|
+| `pkg/channels/telegram/` | `"telegram"` | TypingCapable, PlaceholderCapable, MessageEditor, MediaSender |
+| `pkg/channels/discord/` | `"discord"` | TypingCapable, PlaceholderCapable, MessageEditor, MediaSender |
+| `pkg/channels/slack/` | `"slack"` | ReactionCapable, MediaSender |
+| `pkg/channels/line/` | `"line"` | TypingCapable, MediaSender, WebhookHandler |
+| `pkg/channels/onebot/` | `"onebot"` | ReactionCapable, MediaSender |
+| `pkg/channels/dingtalk/` | `"dingtalk"` | — |
+| `pkg/channels/feishu/` | `"feishu"` | — (architecture-specific build tags: `feishu_32.go` / `feishu_64.go`) |
+| `pkg/channels/wecom/` | `"wecom"` | WebhookHandler, HealthChecker |
+| `pkg/channels/wecom/` | `"wecom_app"` | MediaSender, WebhookHandler, HealthChecker |
+| `pkg/channels/qq/` | `"qq"` | — |
+| `pkg/channels/whatsapp/` | `"whatsapp"` | — (Bridge mode) |
+| `pkg/channels/whatsapp_native/` | `"whatsapp_native"` | — (Native whatsmeow mode) |
+| `pkg/channels/maixcam/` | `"maixcam"` | — |
+| `pkg/channels/pico/` | `"pico"` | TypingCapable, PlaceholderCapable, MessageEditor, WebhookHandler |
 
 ### A.3 Interface Quick Reference
 
@@ -1416,47 +1357,28 @@ agentLoop.Stop()               // Stop Agent
 
 ### A.5 Per-channel Rate Limit Reference
 
-| Channel  | Rate (msg/s) | Burst |
-| -------- | ------------ | ----- |
-| telegram | 20           | 10    |
-| discord  | 1            | 1     |
-| slack    | 1            | 1     |
-| line     | 10           | 5     |
-| _others_ | 10 (default) | 5     |
+| Channel | Rate (msg/s) | Burst |
+|---------|-------------|-------|
+| telegram | 20 | 10 |
+| discord | 1 | 1 |
+| slack | 1 | 1 |
+| line | 10 | 5 |
+| _others_ | 10 (default) | 5 |
 
 ### A.6 Known Limitations and Caveats
 
-1. **Media cleanup temporarily disabled**: The `ReleaseAll` call in the Agent loop is
-   commented out
-   (`refactor(loop): disable media cleanup to prevent premature file deletion`) because
-   session boundaries are not yet clearly defined. TTL cleanup remains active.
+1. **Media cleanup temporarily disabled**: The `ReleaseAll` call in the Agent loop is commented out (`refactor(loop): disable media cleanup to prevent premature file deletion`) because session boundaries are not yet clearly defined. TTL cleanup remains active.
 
-2. **Feishu architecture-specific compilation**: The Feishu channel uses build tags to
-   distinguish 32-bit and 64-bit architectures (`feishu_32.go` / `feishu_64.go`). Feishu
-   uses the SDK's WebSocket mode (not HTTP webhook), so it does not implement
-   `WebhookHandler`.
+2. **Feishu architecture-specific compilation**: The Feishu channel uses build tags to distinguish 32-bit and 64-bit architectures (`feishu_32.go` / `feishu_64.go`). Feishu uses the SDK's WebSocket mode (not HTTP webhook), so it does not implement `WebhookHandler`.
 
-3. **WeCom has two factories**: `"wecom"` (Bot mode, webhook only) and `"wecom_app"`
-   (App mode, supports MediaSender) are registered separately. Both implement
-   `WebhookHandler` and `HealthChecker`.
+3. **WeCom has two factories**: `"wecom"` (Bot mode, webhook only) and `"wecom_app"` (App mode, supports MediaSender) are registered separately. Both implement `WebhookHandler` and `HealthChecker`.
 
-4. **Pico Protocol**: `pkg/channels/pico/` implements a custom OdooClaw native protocol
-   channel that receives messages via WebSocket webhook (`/pico/ws`).
+4. **Pico Protocol**: `pkg/channels/pico/` implements a custom OdooClaw native protocol channel that receives messages via WebSocket webhook (`/pico/ws`).
 
-5. **WhatsApp has two modes**: `"whatsapp"` (Bridge mode, communicates via external
-   bridge URL) and `"whatsapp_native"` (native whatsmeow mode, connects directly to
-   WhatsApp). Manager selects which to initialize based on `WhatsAppConfig.UseNative`.
+5. **WhatsApp has two modes**: `"whatsapp"` (Bridge mode, communicates via external bridge URL) and `"whatsapp_native"` (native whatsmeow mode, connects directly to WhatsApp). Manager selects which to initialize based on `WhatsAppConfig.UseNative`.
 
-6. **DingTalk uses Stream mode**: DingTalk uses the SDK's Stream/WebSocket mode (not
-   HTTP webhook), so it does not implement `WebhookHandler`.
+6. **DingTalk uses Stream mode**: DingTalk uses the SDK's Stream/WebSocket mode (not HTTP webhook), so it does not implement `WebhookHandler`.
 
-7. **PlaceholderConfig vs implementation**: `PlaceholderConfig` appears in 6 channel
-   configs (Telegram, Discord, Slack, LINE, OneBot, Pico), but only channels that
-   implement both `PlaceholderCapable` + `MessageEditor` (Telegram, Discord, Pico) can
-   actually use placeholder message editing. The rest are reserved fields.
+7. **PlaceholderConfig vs implementation**: `PlaceholderConfig` appears in 6 channel configs (Telegram, Discord, Slack, LINE, OneBot, Pico), but only channels that implement both `PlaceholderCapable` + `MessageEditor` (Telegram, Discord, Pico) can actually use placeholder message editing. The rest are reserved fields.
 
-8. **ReasoningChannelID**: Most channel configs include a `reasoning_channel_id` field
-   to route LLM reasoning/thinking output to a designated channel (WhatsApp, Telegram,
-   Feishu, Discord, MaixCam, QQ, DingTalk, Slack, LINE, OneBot, WeCom, WeComApp). Note:
-   `PicoConfig` does not currently expose this field. `BaseChannel` exposes this via the
-   `WithReasoningChannelID` option and `ReasoningChannelID()` method.
+8. **ReasoningChannelID**: Most channel configs include a `reasoning_channel_id` field to route LLM reasoning/thinking output to a designated channel (WhatsApp, Telegram, Feishu, Discord, MaixCam, QQ, DingTalk, Slack, LINE, OneBot, WeCom, WeComApp). Note: `PicoConfig` does not currently expose this field. `BaseChannel` exposes this via the `WithReasoningChannelID` option and `ReasoningChannelID()` method.

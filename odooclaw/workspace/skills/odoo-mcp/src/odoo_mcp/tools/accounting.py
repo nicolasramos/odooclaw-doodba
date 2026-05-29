@@ -1,23 +1,23 @@
-from typing import Any
+from typing import Any, Optional
 
 from odoo_mcp.core.client import OdooClient
+from odoo_mcp.services.invoice_service import create_vendor_invoice
 from odoo_mcp.security.audit import audit_action
 from odoo_mcp.security.guards import guard_model_access
 from odoo_mcp.services.accounting_service import (
-    create_journal_entry,
-    create_vendor_bill_from_ocr_validated,
     find_unreconciled_bank_lines,
-    get_ar_ap_aging,
-    get_tax_summary,
-    post_journal_entry,
+    suggest_bank_reconciliation,
     reconcile_bank_line,
     register_invoice_payment,
+    get_ar_ap_aging,
     run_period_close_checks,
-    suggest_bank_reconciliation,
-    suggest_expense_account_and_taxes,
+    create_journal_entry,
+    post_journal_entry,
+    get_tax_summary,
     validate_vendor_bill_duplicate,
+    suggest_expense_account_and_taxes,
+    create_vendor_bill_from_ocr_validated,
 )
-from odoo_mcp.services.invoice_service import create_vendor_invoice
 
 
 def odoo_create_vendor_invoice(
@@ -37,11 +37,11 @@ def odoo_create_vendor_invoice(
 def odoo_find_unreconciled_bank_lines(
     client: OdooClient,
     user_id: int,
-    journal_id: int | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    amount_min: float | None = None,
-    amount_max: float | None = None,
+    journal_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    amount_min: Optional[float] = None,
+    amount_max: Optional[float] = None,
     limit: int = 50,
 ) -> dict:
     guard_model_access("account.bank.statement.line")
@@ -112,10 +112,10 @@ def odoo_register_invoice_payment(
     client: OdooClient,
     user_id: int,
     invoice_id: int,
-    amount: float | None = None,
-    payment_date: str | None = None,
-    journal_id: int | None = None,
-    memo: str | None = None,
+    amount: Optional[float] = None,
+    payment_date: Optional[str] = None,
+    journal_id: Optional[int] = None,
+    memo: Optional[str] = None,
 ) -> dict:
     audit_action("REGISTER_INVOICE_PAYMENT", user_id, "account.move", [invoice_id], {})
     return register_invoice_payment(
@@ -133,8 +133,8 @@ def odoo_get_ar_ap_aging(
     client: OdooClient,
     user_id: int,
     report_type: str = "both",
-    as_of: str | None = None,
-    company_id: int | None = None,
+    as_of: Optional[str] = None,
+    company_id: Optional[int] = None,
     limit: int = 500,
 ) -> dict:
     audit_action(
@@ -155,7 +155,7 @@ def odoo_run_period_close_checks(
     user_id: int,
     period_start: str,
     period_end: str,
-    company_id: int | None = None,
+    company_id: Optional[int] = None,
 ) -> dict:
     audit_action("RUN_PERIOD_CLOSE_CHECKS", user_id, "account.move", [], {})
     return run_period_close_checks(
@@ -173,8 +173,8 @@ def odoo_create_journal_entry(
     journal_id: int,
     entry_date: str,
     lines: list[dict[str, Any]],
-    ref: str | None = None,
-    company_id: int | None = None,
+    ref: Optional[str] = None,
+    company_id: Optional[int] = None,
 ) -> dict:
     audit_action(
         "CREATE_JOURNAL_ENTRY", user_id, "account.move", [], {"journal_id": journal_id}
@@ -212,8 +212,8 @@ def odoo_get_tax_summary(
     user_id: int,
     date_from: str,
     date_to: str,
-    company_id: int | None = None,
-    tax_group_id: int | None = None,
+    company_id: Optional[int] = None,
+    tax_group_id: Optional[int] = None,
 ) -> dict:
     audit_action("GET_TAX_SUMMARY", user_id, "account.move.line", [], {})
     return get_tax_summary(
@@ -230,10 +230,10 @@ def odoo_validate_vendor_bill_duplicate(
     client: OdooClient,
     user_id: int,
     partner_id: int,
-    vendor_bill_number: str | None = None,
-    invoice_date: str | None = None,
-    amount_total: float | None = None,
-    currency_id: int | None = None,
+    vendor_bill_number: Optional[str] = None,
+    invoice_date: Optional[str] = None,
+    amount_total: Optional[float] = None,
+    currency_id: Optional[int] = None,
     tolerance: float = 0.01,
 ) -> dict:
     audit_action(
@@ -260,9 +260,9 @@ def odoo_suggest_expense_account_and_taxes(
     user_id: int,
     description: str,
     amount: float,
-    partner_id: int | None = None,
-    product_id: int | None = None,
-    company_id: int | None = None,
+    partner_id: Optional[int] = None,
+    product_id: Optional[int] = None,
+    company_id: Optional[int] = None,
 ) -> dict:
     audit_action("SUGGEST_EXPENSE_ACCOUNT_TAXES", user_id, "account.move.line", [], {})
     return suggest_expense_account_and_taxes(
@@ -280,11 +280,11 @@ def odoo_create_vendor_bill_from_ocr_validated(
     client: OdooClient,
     user_id: int,
     ocr_payload: dict[str, Any],
-    attachment_id: int | None = None,
+    attachment_id: Optional[int] = None,
     confirm: bool = False,
     dry_run: bool = False,
-    company_id: int | None = None,
-    allowed_company_ids: list[int] | None = None,
+    company_id: Optional[int] = None,
+    allowed_company_ids: Optional[list[int]] = None,
 ) -> dict:
     audit_action(
         "CREATE_VENDOR_BILL_FROM_OCR_VALIDATED",

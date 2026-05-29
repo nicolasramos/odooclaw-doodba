@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+
 from odoo_mcp.core.client import OdooClient
 from odoo_mcp.services.hr_service import find_attendance, log_task_timesheet
 

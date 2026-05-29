@@ -3,6 +3,7 @@ from __future__ import annotations
 import fnmatch
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -12,7 +13,7 @@ class SecurityConfig:
     read_only: bool
 
 
-def _parse_bool(value: str | None, default: bool) -> bool:
+def _parse_bool(value: Optional[str], default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -45,5 +46,5 @@ def is_domain_allowed(domain: str, allowed_domains: list[str]) -> bool:
     return False
 
 
-def require_token(expected_token: str, provided_token: str | None) -> bool:
+def require_token(expected_token: str, provided_token: Optional[str]) -> bool:
     return bool(provided_token) and provided_token == expected_token

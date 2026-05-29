@@ -1,8 +1,7 @@
 # Odoo Manager - OpenClaw Skill
 
-Un skill OpenClaw pour interagir avec **Odoo** via son **API externe XML-RPC** :
-connexion, sélection d’instance/base, et opérations génériques sur n’importe quel modèle
-(avec des exemples prêts à l’emploi pour `res.partner`).
+Un skill OpenClaw pour interagir avec **Odoo** via son **API externe XML-RPC** :  
+connexion, sélection d’instance/base, et opérations génériques sur n’importe quel modèle (avec des exemples prêts à l’emploi pour `res.partner`).
 
 ---
 
@@ -26,7 +25,7 @@ Optionnel :
 ODOO_API_KEY=your_api_key_here
 ```
 
-> L’API externe Odoo est décrite ici :
+> L’API externe Odoo est décrite ici :  
 > https://www.odoo.com/documentation/18.0/fr/developer/reference/external_api.html
 
 ### 2. Mot de Passe vs Clé API
@@ -42,18 +41,16 @@ Pour créer une clé API :
 2. Va dans **Préférences / Mon profil**.
 3. Onglet **Sécurité du compte**.
 4. Clique sur **Nouvelle clé API**, donne une description claire, puis copie la clé.
-5. Place cette clé dans `ODOO_API_KEY` (ou `user_api_key` / `temporary_api_key` côté
-   contexte).
+5. Place cette clé dans `ODOO_API_KEY` (ou `user_api_key` / `temporary_api_key` côté contexte).
 
-> La clé API donne le **même niveau d’accès** que ton utilisateur. Protége-la comme un
-> mot de passe.
+> La clé API donne le **même niveau d’accès** que ton utilisateur. Protége-la comme un mot de passe.
 
 ---
 
 ## 🧠 Résolution du Contexte (URL, DB, Utilisateur)
 
-Le skill applique une logique de **résolution hiérarchique** pour savoir quelle instance
-et quelle base utiliser.
+Le skill applique une logique de **résolution hiérarchique** pour savoir quelle
+instance et quelle base utiliser.
 
 ### 1. URL (instance Odoo)
 
@@ -74,8 +71,10 @@ Ordre de priorité :
 ### 3. Identifiant & Secret
 
 - Username : `temporary_username` → `user_username` → `ODOO_USERNAME`
-- Secret (mot de passe ou clé API) : `temporary_api_key` / `temporary_password` →
-  `user_api_key` / `user_password` → `ODOO_API_KEY` (si présent) sinon `ODOO_PASSWORD`
+- Secret (mot de passe ou clé API) :  
+  `temporary_api_key` / `temporary_password` →  
+  `user_api_key` / `user_password` →  
+  `ODOO_API_KEY` (si présent) sinon `ODOO_PASSWORD`
 
 En pratique, le skill travaille toujours avec :
 
@@ -88,8 +87,8 @@ En pratique, le skill travaille toujours avec :
 
 ## 📖 Démarrage Rapide
 
-Les exemples ci‑dessous montrent **l’intention utilisateur** (en français) et le type
-d’appels XML‑RPC qui seront effectués.
+Les exemples ci‑dessous montrent **l’intention utilisateur** (en français) et
+le type d’appels XML‑RPC qui seront effectués.
 
 ### Exemple 1 : Vérifier la Connexion
 
@@ -99,8 +98,7 @@ User: "Vérifie la connexion à Odoo"
 
 Flux :
 
-1. Résolution du contexte (`resolved_url`, `resolved_db`, `resolved_username`,
-   `resolved_secret`).
+1. Résolution du contexte (`resolved_url`, `resolved_db`, `resolved_username`, `resolved_secret`).
 2. Appel de `version()` sur `{{resolved_url}}/xmlrpc/2/common`.
 3. Essai d’authentification :
 
@@ -176,8 +174,8 @@ Le skill résume les champs (nom technique, label, type, aide).
 
 ## 🔄 Multi‑Instances & Multi‑Bases
 
-Comme pour le skill MantisBT Manager, Odoo Manager permet de gérer **plusieurs instances
-Odoo** et **plusieurs bases** en parallèle, via le contexte.
+Comme pour le skill MantisBT Manager, Odoo Manager permet de gérer
+**plusieurs instances Odoo** et **plusieurs bases** en parallèle, via le contexte.
 
 ### Contexte Temporaire (une seule opération)
 
@@ -222,8 +220,8 @@ Toutes les opérations suivantes utilisent ce contexte, jusqu’à réinitialisa
 User: "Reviens à l’instance Odoo par défaut"
 ```
 
-→ Clear `user_url`, `user_db`, `user_username`, `user_password`, `user_api_key` →
-Utilisation de `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD` / `ODOO_API_KEY`
+→ Clear `user_url`, `user_db`, `user_username`, `user_password`, `user_api_key`  
+→ Utilisation de `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD` / `ODOO_API_KEY`
 
 ---
 
@@ -250,8 +248,8 @@ Utilisation de `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD` / `ODOO_A
 
 ### 4. Automatisations Génériques
 
-- Exécuter `search` / `search_read` sur n’importe quel modèle métier (`crm.lead`,
-  `project.task`, `sale.order`, etc.).
+- Exécuter `search` / `search_read` sur n’importe quel modèle métier
+  (`crm.lead`, `project.task`, `sale.order`, etc.).
 - Mettre à jour en masse des enregistrements (par lots raisonnables).
 
 ---
@@ -270,30 +268,31 @@ Utilisation de `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD` / `ODOO_A
 - Vérifier que tu utilises la **bonne base** (`ODOO_DB` ou overrides contextuels).
 - Pour Odoo Online, t’assurer que l’utilisateur possède bien un **mot de passe local**
   ou une clé API (voir la doc Odoo).
-- En cas d’erreur sur un modèle/champ, afficher les détails de l’exception pour savoir
-  quel champ ou quelle contrainte pose problème.
+- En cas d’erreur sur un modèle/champ, afficher les détails de l’exception pour
+  savoir quel champ ou quelle contrainte pose problème.
 
 ---
 
 ## 🔒 Sécurité & Bonnes Pratiques
 
 - **Ne jamais commiter** `ODOO_PASSWORD` ni `ODOO_API_KEY` dans un dépôt.
-- Utiliser exclusivement des **variables d’environnement** ou un coffre-fort de secrets.
-- Donner au compte utilisé les **droits minimum nécessaires** (principe du moindre
-  privilège).
+- Utiliser exclusivement des **variables d’environnement** ou un coffre-fort
+  de secrets.
+- Donner au compte utilisé les **droits minimum nécessaires** (principe du moindre privilège).
 - Changer régulièrement les mots de passe / clés API en production.
 
-> L’accès à l’API externe Odoo est réservé aux offres **Custom**. Il n’est pas
-> disponible sur les offres **One App Free** ou **Standard**.
+> L’accès à l’API externe Odoo est réservé aux offres **Custom**.  
+> Il n’est pas disponible sur les offres **One App Free** ou **Standard**.
 
 ---
 
 ## 📚 Référence Complète du Skill
 
-La spécification détaillée du skill (résolution de contexte, opérations génériques ORM,
-exemples `res.partner`, introspection, etc.) se trouve dans :
+La spécification détaillée du skill (résolution de contexte, opérations génériques
+ORM, exemples `res.partner`, introspection, etc.) se trouve dans :
 
 - `Odoo Manager/SKILL.md`
 
-Consulte ce fichier pour voir tous les détails des appels `execute_kw` et des modèles
-pris en charge de manière générique.
+Consulte ce fichier pour voir tous les détails des appels `execute_kw` et
+des modèles pris en charge de manière générique.
+

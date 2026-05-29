@@ -1,8 +1,6 @@
 # OdooClaw Browser Copilot Backend (Phase 1 MVP)
 
-`browser_copilot` is a standalone FastAPI module for receiving tab snapshots from a
-Chromium extension, analyzing context (including Odoo heuristics), and returning
-structured suggestions/actions.
+`browser_copilot` is a standalone FastAPI module for receiving tab snapshots from a Chromium extension, analyzing context (including Odoo heuristics), and returning structured suggestions/actions.
 
 ## Folder Structure
 
@@ -231,10 +229,8 @@ The Browser Copilot MVP now supports a conversation-linked flow:
 
 Browser Copilot is separate from the SQLite memory backend.
 
-- Browser Copilot stores recent page context in memory for fast per-conversation
-  resolution.
-- OdooClaw memory uses `workspace/memory/main.sqlite` for long-term recall and
-  prompt-safe retrieval.
+- Browser Copilot stores recent page context in memory for fast per-conversation resolution.
+- OdooClaw memory uses `workspace/memory/main.sqlite` for long-term recall and prompt-safe retrieval.
 
 See `odooclaw/docs/SQLITE_MEMORY.md` for the memory backend details.
 

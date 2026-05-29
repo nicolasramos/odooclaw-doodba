@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+
 from odoo_mcp.core.client import OdooClient
 from odoo_mcp.services.project_service import update_task_status
 from odoo_mcp.services.workforce_service import (

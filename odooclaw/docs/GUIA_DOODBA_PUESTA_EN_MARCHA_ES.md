@@ -1,8 +1,6 @@
 # Guia completa: OdooClaw + Doodba
 
-Esta guia explica, de principio a fin, como levantar OdooClaw dentro de un proyecto
-Doodba, como configurarlo, como modificar `config.json` y como validar que funciona en
-Odoo Discuss.
+Esta guia explica, de principio a fin, como levantar OdooClaw dentro de un proyecto Doodba, como configurarlo, como modificar `config.json` y como validar que funciona en Odoo Discuss.
 
 ## 1) Requisitos previos
 
@@ -12,8 +10,7 @@ Necesitas:
 - proyecto Doodba operativo
 - Odoo (17/18) levantando en ese proyecto
 - acceso de administrador a Odoo
-- una API key de modelo (OpenAI/OpenRouter/Anthropic, etc.) o endpoint local compatible
-  OpenAI
+- una API key de modelo (OpenAI/OpenRouter/Anthropic, etc.) o endpoint local compatible OpenAI
 
 ## 2) Estructura recomendada del proyecto
 
@@ -97,9 +94,7 @@ Notas importantes:
 - Usa prefijo en mayusculas `ODOOCLAW_...` para variables de entorno.
 - No dejes API keys hardcodeadas en `devel.yaml`.
 - En produccion, usa API key de Odoo en lugar de password de admin.
-- En servidores MCP usa comandos genericos (por ejemplo `whisper-stt-mcp.py`,
-  `edge-tts-mcp.py`, `python3 -m odoo_mcp.server`) en lugar de rutas absolutas del
-  workspace.
+- En servidores MCP usa comandos genericos (por ejemplo `whisper-stt-mcp.py`, `edge-tts-mcp.py`, `python3 -m odoo_mcp.server`) en lugar de rutas absolutas del workspace.
 
 ## 5) Variables en `.docker/odoo.env`
 
@@ -262,8 +257,7 @@ docker compose logs --since=5m odooclaw
 - soporte en Discuss (Q&A operativo)
 - lectura de adjuntos (Excel/CSV)
 - OCR de facturas de proveedor
-- consultas multi-modelo Odoo via herramientas `odoo-mcp` (`odoo_search`, `odoo_read`,
-  `odoo_create`, `odoo_write`)
+- consultas multi-modelo Odoo via herramientas `odoo-mcp` (`odoo_search`, `odoo_read`, `odoo_create`, `odoo_write`)
 
 ## 12) Errores comunes y solucion rapida
 

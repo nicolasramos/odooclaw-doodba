@@ -1,7 +1,6 @@
 # configuration Guide for OdooClaw (Odoo Integration)
 
-This document explains how to configure OdooClaw, especially for its integration with
-Odoo and various AI model providers.
+This document explains how to configure OdooClaw, especially for its integration with Odoo and various AI model providers.
 
 ## 1. Initial Setup
 
@@ -18,7 +17,6 @@ The file `config/config.json` is ignored by git to protect your secrets.
 OdooClaw supports multiple AI providers. You define them in the `model_list` array.
 
 ### OpenAI (Cloud)
-
 ```json
 {
   "model_name": "gpt-4o",
@@ -28,7 +26,6 @@ OdooClaw supports multiple AI providers. You define them in the `model_list` arr
 ```
 
 ### Anthropic Claude (Cloud)
-
 ```json
 {
   "model_name": "claude-3-5-sonnet",
@@ -38,9 +35,7 @@ OdooClaw supports multiple AI providers. You define them in the `model_list` arr
 ```
 
 ### Ollama (Local)
-
 Run models locally using [Ollama](https://ollama.com/).
-
 ```json
 {
   "model_name": "local-llama",
@@ -50,9 +45,7 @@ Run models locally using [Ollama](https://ollama.com/).
 ```
 
 ### LM Studio / vLLM / MLX (Local / OpenAI Compatible)
-
 If you are running a local server that mimics the OpenAI API:
-
 ```json
 {
   "model_name": "local-mlx",
@@ -79,8 +72,7 @@ The `model_name` must match one of the entries in your `model_list`.
 
 ## 4. Odoo Channel Configuration
 
-To enable the integration with Odoo, ensure the `odoo` channel is enabled in the
-`channels` section:
+To enable the integration with Odoo, ensure the `odoo` channel is enabled in the `channels` section:
 
 ```json
 "channels": {
@@ -94,9 +86,7 @@ To enable the integration with Odoo, ensure the `odoo` channel is enabled in the
 ```
 
 ### Environment Variables for Odoo
-
-In your `devel.yaml` or `prod.yaml`, make sure the following environment variables are
-set so OdooClaw can talk back to Odoo:
+In your `devel.yaml` or `prod.yaml`, make sure the following environment variables are set so OdooClaw can talk back to Odoo:
 
 - `ODOO_URL`: The URL of your Odoo instance (e.g., `http://odoo:8069`).
 - `ODOO_DB`: The name of the database.
@@ -105,5 +95,4 @@ set so OdooClaw can talk back to Odoo:
 
 ## 5. Advanced: Model Routing
 
-You can override the model for specific agents or purposes by adding more specific
-configurations in the `agents` section (see `config.example.json` for details).
+You can override the model for specific agents or purposes by adding more specific configurations in the `agents` section (see `config.example.json` for details).

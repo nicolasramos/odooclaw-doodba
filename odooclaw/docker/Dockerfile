@@ -18,7 +18,7 @@ RUN make build
 # ============================================================
 # Stage 2: Runtime image (Debian-based for AI compatibility)
 # ============================================================
-# We use python:3.11-slim instead of Alpine because AI libraries
+# We use python:3.11-slim instead of Alpine because AI libraries 
 # (whisper, numpy, etc.) have pre-built wheels for Debian/glibc.
 # Compiling them on Alpine (musl) is slow, error-prone and fragile.
 FROM python:3.11-slim

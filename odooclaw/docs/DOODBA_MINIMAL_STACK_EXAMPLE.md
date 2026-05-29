@@ -1,7 +1,6 @@
 # Doodba Minimal Stack Example (OdooClaw + Browser Copilot + Redis)
 
-This guide provides copy/paste-ready examples for a minimal Doodba setup using
-`prod.yaml`.
+This guide provides copy/paste-ready examples for a minimal Doodba setup using `prod.yaml`.
 
 ## Files to copy
 
@@ -37,8 +36,7 @@ STT mode can be selected with:
 - `STT_PROVIDER=openai` (API only)
 - `STT_PROVIDER=auto` (local + API fallback, default)
 
-For OpenAI-compatible STT providers, set `STT_API_BASE`, `STT_API_KEY`, and
-`STT_OPENAI_MODEL`.
+For OpenAI-compatible STT providers, set `STT_API_BASE`, `STT_API_KEY`, and `STT_OPENAI_MODEL`.
 
 ## 3) OdooClaw config
 
@@ -48,8 +46,7 @@ Create config file:
 cp examples/doodba/config.odooclaw.minimal.example.json odooclaw/config/config.json
 ```
 
-This is a baseline config. Environment variables from `.docker/odoo.env` still take
-precedence.
+This is a baseline config. Environment variables from `.docker/odoo.env` still take precedence.
 
 ## 4) Odoo 16 module
 
@@ -75,10 +72,8 @@ docker compose -f prod.yaml logs -f odooclaw browser-copilot
 
 ## 6) Why Redis is included
 
-- Redis is required by the main `odooclaw` runtime pattern (async/background
-  coordination).
-- `browser-copilot` does not require Redis directly, but it is coupled to OdooClaw chat
-  flow.
+- Redis is required by the main `odooclaw` runtime pattern (async/background coordination).
+- `browser-copilot` does not require Redis directly, but it is coupled to OdooClaw chat flow.
 
 ## 7) Extension setup
 

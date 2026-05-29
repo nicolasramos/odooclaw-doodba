@@ -1,18 +1,8 @@
 ---
 name: odoo-mcp-legacy-reference
-description:
-  Legacy reference document kept for migration context. Use the odoo-mcp skill and tools
-  for active Odoo operations.
+description: Legacy reference document kept for migration context. Use the odoo-mcp skill and tools for active Odoo operations.
 homepage: https://www.odoo.com/documentation/
-metadata:
-  {
-    "openclaw":
-      {
-        "emoji": "🏢",
-        "requires": {"env": ["ODOO_URL", "ODOO_DB", "ODOO_USERNAME", "ODOO_PASSWORD"]},
-        "primaryEnv": "ODOO_PASSWORD",
-      },
-  }
+metadata: {"openclaw":{"emoji":"🏢","requires":{"env":["ODOO_URL","ODOO_DB","ODOO_USERNAME","ODOO_PASSWORD"]},"primaryEnv":"ODOO_PASSWORD"}}
 ---
 
 # Odoo Manager Skill
@@ -80,11 +70,7 @@ Secret (password or API key) precedence:
 - Odoo API keys are used **in place of** the password, with the usual login.
 - Store passwords / API keys like real passwords; never log or expose them.
 
-Environment variables are handled via standard OpenClaw metadata: `requires.env`
-declares **required** variables (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`,
-`ODOO_PASSWORD`). `ODOO_API_KEY` is an **optional** environment variable used instead of
-the password when present; it is not listed in metadata and should simply be set in the
-environment when needed.
+Environment variables are handled via standard OpenClaw metadata: `requires.env` declares **required** variables (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`). `ODOO_API_KEY` is an **optional** environment variable used instead of the password when present; it is not listed in metadata and should simply be set in the environment when needed.
 
 ### Resolved Values
 
@@ -101,10 +87,7 @@ These are computed using the precedence rules above.
 
 ## 🔄 Context Management
 
-> The `temporary_*` and `user_*` names are **runtime context variables used by the skill
-> logic**, not OpenClaw metadata fields. OpenClaw does **not** have an
-> `optional.context` metadata key; context is resolved dynamically at runtime as
-> described below.
+> The `temporary_*` and `user_*` names are **runtime context variables used by the skill logic**, not OpenClaw metadata fields. OpenClaw does **not** have an `optional.context` metadata key; context is resolved dynamically at runtime as described below.
 
 ### Temporary Context (One-Time Use)
 
@@ -149,8 +132,7 @@ This is ideal for:
 **Action:**
 
 - Clear `user_url`, `user_db`, `user_username`, `user_password`, `user_api_key`
-- Skill falls back to environment variables (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`,
-  `ODOO_PASSWORD` / `ODOO_API_KEY`)
+- Skill falls back to environment variables (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD` / `ODOO_API_KEY`)
 
 ### Viewing Current Context
 
@@ -175,9 +157,8 @@ Current Odoo Context:
 
 ## ⚙️ Odoo XML-RPC Basics
 
-Odoo exposes part of its server framework over **XML-RPC** (not REST). The External API
-is documented here:
-https://www.odoo.com/documentation/18.0/fr/developer/reference/external_api.html
+Odoo exposes part of its server framework over **XML-RPC** (not REST).
+The External API is documented here: https://www.odoo.com/documentation/18.0/fr/developer/reference/external_api.html
 
 Two main endpoints:
 
@@ -272,17 +253,15 @@ Common operators:
 
 - **Integer / Float / Char / Text**: use native types.
 - **Date / Datetime**: strings in `YYYY-MM-DD` or ISO 8601 format.
-- **Many2one**: usually send the **record ID** (`int`) when writing; reads often return
-  `[id, display_name]`.
-- **One2many / Many2many**: use the Odoo **command list** protocol for writes (not fully
-  detailed here; see Odoo docs if needed).
+- **Many2one**: usually send the **record ID** (`int`) when writing; reads often return `[id, display_name]`.
+- **One2many / Many2many**: use the Odoo **command list** protocol for writes (not fully detailed here; see Odoo docs if needed).
 
 ---
 
 ## 🧩 Generic ORM Operations (execute_kw)
 
-Each subsection below shows typical user queries and the corresponding `execute_kw`
-usage. They are applicable to **any** model (not only `res.partner`).
+Each subsection below shows typical user queries and the corresponding
+`execute_kw` usage. They are applicable to **any** model (not only `res.partner`).
 
 ### List / Search Records (search)
 
@@ -455,8 +434,7 @@ Result is a list of `[id, display_name]`.
 
 ## 👥 Contacts / Partners (res.partner)
 
-`res.partner` is the core model for contacts, companies, and many business relations in
-Odoo.
+`res.partner` is the core model for contacts, companies, and many business relations in Odoo.
 
 ### List Company Partners
 
@@ -605,8 +583,7 @@ models_list = models.execute_kw(
 )
 ```
 
-`state` indicates whether a model is defined in code (`"base"`) or created dynamically
-(`"manual"`).
+`state` indicates whether a model is defined in code (`"base"`) or created dynamically (`"manual"`).
 
 ### List Fields of a Specific Model (ir.model.fields)
 
@@ -636,17 +613,14 @@ fields_meta = models.execute_kw(
 
 ### Typical Errors
 
-- **Authentication failure**: wrong URL, DB, username, or secret → `authenticate`
-  returns `False` or later calls fail.
+- **Authentication failure**: wrong URL, DB, username, or secret → `authenticate` returns `False` or later calls fail.
 - **Access rights / ACLs**: user does not have permission on a model or record.
 - **Validation errors**: required fields missing, constraints violated.
-- **Connectivity issues**: network errors reaching `xmlrpc/2/common` or
-  `xmlrpc/2/object`.
+- **Connectivity issues**: network errors reaching `xmlrpc/2/common` or `xmlrpc/2/object`.
 
 The skill should:
 
-- Clearly indicate if the issue is with **connection**, **credentials**, or **business
-  validation**.
+- Clearly indicate if the issue is with **connection**, **credentials**, or **business validation**.
 - Propose next steps (check env vars, context overrides, user rights).
 
 ### Pagination
@@ -670,12 +644,10 @@ The skill should:
 
 ### Example 1: Check Connection & List Company Partners
 
-1. Resolve context: `{{resolved_url}}`, `{{resolved_db}}`, `{{resolved_username}}`,
-   `{{resolved_secret}}`
+1. Resolve context: `{{resolved_url}}`, `{{resolved_db}}`, `{{resolved_username}}`, `{{resolved_secret}}`
 2. Call `version()` on `{{resolved_url}}/xmlrpc/2/common`
 3. Authenticate to get `uid`
-4. Call `execute_kw` on `res.partner` with `search_read` and domain
-   `[['is_company', '=', True]]`
+4. Call `execute_kw` on `res.partner` with `search_read` and domain `[['is_company', '=', True]]`
 
 ### Example 2: Create a Partner, Then Read It Back
 
@@ -693,17 +665,15 @@ The skill should:
 
 ## 📚 References & Capabilities Summary
 
-- Official Odoo External API documentation (XML-RPC):
-  https://www.odoo.com/documentation/18.0/fr/developer/reference/external_api.html
-- Requires an Odoo plan with External API access (Custom plans; not available on One App
-  Free / Standard).
+- Official Odoo External API documentation (XML-RPC): https://www.odoo.com/documentation/18.0/fr/developer/reference/external_api.html
+- Requires an Odoo plan with External API access (Custom plans; not available on One App Free / Standard).
 
 **This skill can:**
 
 - Connect to Odoo via XML-RPC using password **or** API key.
 - Switch dynamically between multiple instances and databases using context.
-- Perform generic CRUD (`search`, `search_count`, `read`, `search_read`, `create`,
-  `write`, `unlink`) on **any** Odoo model via `execute_kw`.
+- Perform generic CRUD (`search`, `search_count`, `read`, `search_read`, `create`, `write`, `unlink`) on **any** Odoo model via `execute_kw`.
 - Provide ready-made flows for `res.partner` (contacts / companies).
 - Inspect model structures using `fields_get`, `ir.model`, and `ir.model.fields`.
 - Apply best practices regarding pagination, field selection, and error handling.
+

@@ -65,8 +65,7 @@ Detects daily gaps between attendance and timesheet logs.
 }
 ```
 
-Each result row includes `date`, `attendance_hours`, `timesheet_hours`, and
-`missing_hours`.
+Each result row includes `date`, `attendance_hours`, `timesheet_hours`, and `missing_hours`.
 
 ### `odoo_suggest_timesheet_from_attendance`
 
@@ -82,8 +81,7 @@ Builds timesheet suggestions from missing-hour analysis.
 }
 ```
 
-Response includes suggested `task_id` (when available), `unit_amount`, and default
-`name` per day.
+Response includes suggested `task_id` (when available), `unit_amount`, and default `name` per day.
 
 ## Task operation tools
 

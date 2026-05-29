@@ -1,10 +1,8 @@
 import logging
-from typing import Any
-
+from typing import Any, Dict, List, Optional
 import requests
-
-from .exceptions import OdooRPCError
 from .session import OdooSession
+from .exceptions import OdooRPCError
 
 _logger = logging.getLogger(__name__)
 
@@ -23,9 +21,9 @@ class OdooClient:
         self,
         model: str,
         method: str,
-        args: list[Any] | None = None,
-        kwargs: dict[str, Any] | None = None,
-        sender_id: int | None = None,
+        args: Optional[List[Any]] = None,
+        kwargs: Optional[Dict[str, Any]] = None,
+        sender_id: Optional[int] = None,
     ) -> Any:
         """
         Executes a method on an Odoo model.
@@ -66,8 +64,8 @@ class OdooClient:
         user_id: int,
         model: str,
         method: str,
-        args: list[Any],
-        kwargs: dict[str, Any],
+        args: List[Any],
+        kwargs: Dict[str, Any],
     ) -> Any:
         """Delegated execution leveraging Odoo's native security via mail_bot_odooclaw endpoint."""
         endpoint = f"{self.odoo_session.url}/odooclaw/call_kw_as_user"
@@ -128,9 +126,9 @@ class OdooClient:
         self,
         model: str,
         method: str,
-        args: list[Any] | None = None,
-        kwargs: dict[str, Any] | None = None,
-        sender_id: int | None = None,
+        args: Optional[List[Any]] = None,
+        kwargs: Optional[Dict[str, Any]] = None,
+        sender_id: Optional[int] = None,
         default: Any = None,
     ) -> Any:
         try:
@@ -141,20 +139,20 @@ class OdooClient:
             return default
 
     def get_model_fields(
-        self, model: str, sender_id: int | None = None
-    ) -> dict[str, Any]:
+        self, model: str, sender_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         return self.call_kw(model, "fields_get", sender_id=sender_id)
 
     def try_get_model_fields(
-        self, model: str, sender_id: int | None = None
-    ) -> dict[str, Any] | None:
+        self, model: str, sender_id: Optional[int] = None
+    ) -> Optional[Dict[str, Any]]:
         return self.try_call_kw(model, "fields_get", sender_id=sender_id, default=None)
 
-    def model_exists(self, model: str, sender_id: int | None = None) -> bool:
+    def model_exists(self, model: str, sender_id: Optional[int] = None) -> bool:
         return self.try_get_model_fields(model, sender_id=sender_id) is not None
 
     def field_exists(
-        self, model: str, field_name: str, sender_id: int | None = None
+        self, model: str, field_name: str, sender_id: Optional[int] = None
     ) -> bool:
         fields = self.try_get_model_fields(model, sender_id=sender_id)
         return bool(fields and field_name in fields)

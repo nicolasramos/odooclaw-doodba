@@ -1,6 +1,6 @@
 from datetime import date as date_cls
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 
 from odoo_mcp.core.client import OdooClient
 from odoo_mcp.observability.logging import get_logger
@@ -9,8 +9,8 @@ _logger = get_logger("workforce_service")
 
 
 def _resolve_employee_id(
-    client: OdooClient, sender_id: int, employee_id: int | None = None
-) -> int | None:
+    client: OdooClient, sender_id: int, employee_id: Optional[int] = None
+) -> Optional[int]:
     if employee_id:
         return employee_id
 
@@ -55,8 +55,8 @@ def _timesheet_hours_by_day(timesheets: list[dict[str, Any]]) -> dict[str, float
 def check_in(
     client: OdooClient,
     sender_id: int,
-    employee_id: int | None = None,
-    check_in_at: str | None = None,
+    employee_id: Optional[int] = None,
+    check_in_at: Optional[str] = None,
 ) -> dict:
     if not client.model_exists("hr.attendance", sender_id=sender_id):
         raise ValueError("Model hr.attendance is not available in this Odoo instance")
@@ -99,8 +99,8 @@ def check_in(
 def check_out(
     client: OdooClient,
     sender_id: int,
-    employee_id: int | None = None,
-    check_out_at: str | None = None,
+    employee_id: Optional[int] = None,
+    check_out_at: Optional[str] = None,
 ) -> dict:
     if not client.model_exists("hr.attendance", sender_id=sender_id):
         raise ValueError("Model hr.attendance is not available in this Odoo instance")
@@ -163,7 +163,7 @@ def check_out(
 def get_my_today_summary(
     client: OdooClient,
     sender_id: int,
-    employee_id: int | None = None,
+    employee_id: Optional[int] = None,
 ) -> dict:
     today, start_ts, end_ts = _today_window()
     resolved_employee = _resolve_employee_id(client, sender_id, employee_id)
@@ -244,9 +244,9 @@ def get_my_today_summary(
 def find_missing_timesheets(
     client: OdooClient,
     sender_id: int,
-    employee_id: int | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
+    employee_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     tolerance_hours: float = 0.25,
 ) -> list[dict[str, Any]]:
     if not client.model_exists("hr.attendance", sender_id=sender_id):
@@ -314,9 +314,9 @@ def find_missing_timesheets(
 def suggest_timesheet_from_attendance(
     client: OdooClient,
     sender_id: int,
-    employee_id: int | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
+    employee_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     tolerance_hours: float = 0.25,
 ) -> dict:
     missing = find_missing_timesheets(
@@ -362,11 +362,11 @@ def suggest_timesheet_from_attendance(
 def create_expense_report(
     client: OdooClient,
     sender_id: int,
-    name: str | None = None,
-    expense_ids: list[int] | None = None,
-    employee_id: int | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
+    name: Optional[str] = None,
+    expense_ids: Optional[list[int]] = None,
+    employee_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
 ) -> dict:
     if not client.model_exists("hr.expense.sheet", sender_id=sender_id):
         raise ValueError(
@@ -467,7 +467,7 @@ def approve_expense(
     sender_id: int,
     sheet_id: int,
     approve: bool = True,
-    reason: str | None = None,
+    reason: Optional[str] = None,
 ) -> dict:
     if not client.model_exists("hr.expense.sheet", sender_id=sender_id):
         raise ValueError(
@@ -528,7 +528,7 @@ def approve_expense(
 def notify_pending_actions(
     client: OdooClient,
     sender_id: int,
-    employee_id: int | None = None,
+    employee_id: Optional[int] = None,
     days_back: int = 7,
 ) -> dict:
     resolved_employee = _resolve_employee_id(client, sender_id, employee_id)

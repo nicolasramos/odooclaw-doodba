@@ -1,7 +1,6 @@
 # OdooClaw Channel System：完整开发指南
 
-> **影响范围**: `pkg/channels/`, `pkg/bus/`, `pkg/media/`, `pkg/identity/`,
-> `cmd/odooclaw/internal/gateway/`
+> **影响范围**: `pkg/channels/`, `pkg/bus/`, `pkg/media/`, `pkg/identity/`, `cmd/odooclaw/internal/gateway/`
 
 ---
 
@@ -108,14 +107,14 @@ pkg/identity/
 
 ### 1.3 关键设计原则
 
-| 原则           | 说明                                                                                                                                                                            |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **子包隔离**   | 每个 channel 一个独立 Go 子包，依赖 `channels` 父包提供的 `BaseChannel` 和接口                                                                                                  |
-| **工厂注册**   | 各子包通过 `init()` 自注册，Manager 通过名字查找工厂，消除 import 耦合                                                                                                          |
-| **能力发现**   | 可选能力通过接口（`MediaSender`, `TypingCapable`, `ReactionCapable`, `PlaceholderCapable`, `MessageEditor`, `WebhookHandler`, `HealthChecker`）声明，Manager 运行时类型断言发现 |
-| **结构化消息** | Peer、MessageID、SenderInfo 从 Metadata 提升为 InboundMessage 的一等字段                                                                                                        |
-| **错误分类**   | Channel 返回哨兵错误（`ErrRateLimit`, `ErrTemporary` 等），Manager 据此决定重试策略                                                                                             |
-| **集中编排**   | 速率限制、消息分割、重试、Typing/Reaction/Placeholder 全部由 Manager 和 BaseChannel 统一处理，Channel 只负责 Send                                                               |
+| 原则 | 说明 |
+|------|------|
+| **子包隔离** | 每个 channel 一个独立 Go 子包，依赖 `channels` 父包提供的 `BaseChannel` 和接口 |
+| **工厂注册** | 各子包通过 `init()` 自注册，Manager 通过名字查找工厂，消除 import 耦合 |
+| **能力发现** | 可选能力通过接口（`MediaSender`, `TypingCapable`, `ReactionCapable`, `PlaceholderCapable`, `MessageEditor`, `WebhookHandler`, `HealthChecker`）声明，Manager 运行时类型断言发现 |
+| **结构化消息** | Peer、MessageID、SenderInfo 从 Metadata 提升为 InboundMessage 的一等字段 |
+| **错误分类** | Channel 返回哨兵错误（`ErrRateLimit`, `ErrTemporary` 等），Manager 据此决定重试策略 |
+| **集中编排** | 速率限制、消息分割、重试、Typing/Reaction/Placeholder 全部由 Manager 和 BaseChannel 统一处理，Channel 只负责 Send |
 
 ---
 
@@ -126,33 +125,31 @@ pkg/identity/
 #### 步骤 1：确认你修改了哪些文件
 
 在 main 分支上，Channel 文件直接位于 `pkg/channels/` 顶层，例如：
-
 - `pkg/channels/telegram.go`
 - `pkg/channels/discord.go`
 
 重构后，这些文件已被删除，代码移动到了对应子包：
-
 - `pkg/channels/telegram/telegram.go`
 - `pkg/channels/discord/discord.go`
 
 #### 步骤 2：理解结构变化映射
 
-| main 分支文件              | 重构分支位置                                    | 变化                                |
-| -------------------------- | ----------------------------------------------- | ----------------------------------- |
-| `pkg/channels/telegram.go` | `pkg/channels/telegram/telegram.go` + `init.go` | 包名从 `channels` 变为 `telegram`   |
-| `pkg/channels/discord.go`  | `pkg/channels/discord/discord.go` + `init.go`   | 同上                                |
-| `pkg/channels/manager.go`  | `pkg/channels/manager.go`                       | 大幅重写                            |
-| _(不存在)_                 | `pkg/channels/base.go`                          | 新增共享抽象层                      |
-| _(不存在)_                 | `pkg/channels/registry.go`                      | 新增工厂注册表                      |
-| _(不存在)_                 | `pkg/channels/errors.go` + `errutil.go`         | 新增错误分类体系                    |
-| _(不存在)_                 | `pkg/channels/interfaces.go`                    | 新增可选能力接口                    |
-| _(不存在)_                 | `pkg/channels/media.go`                         | 新增 MediaSender 接口               |
-| _(不存在)_                 | `pkg/channels/webhook.go`                       | 新增 WebhookHandler/HealthChecker   |
-| _(不存在)_                 | `pkg/channels/whatsapp_native/`                 | 新增 WhatsApp 原生模式（whatsmeow） |
-| _(不存在)_                 | `pkg/channels/split.go`                         | 新增消息分割（从 utils 迁入）       |
-| _(不存在)_                 | `pkg/bus/types.go`                              | 新增结构化消息类型                  |
-| _(不存在)_                 | `pkg/media/store.go`                            | 新增媒体文件生命周期管理            |
-| _(不存在)_                 | `pkg/identity/identity.go`                      | 新增统一用户身份                    |
+| main 分支文件 | 重构分支位置 | 变化 |
+|---|---|---|
+| `pkg/channels/telegram.go` | `pkg/channels/telegram/telegram.go` + `init.go` | 包名从 `channels` 变为 `telegram` |
+| `pkg/channels/discord.go` | `pkg/channels/discord/discord.go` + `init.go` | 同上 |
+| `pkg/channels/manager.go` | `pkg/channels/manager.go` | 大幅重写 |
+| _(不存在)_ | `pkg/channels/base.go` | 新增共享抽象层 |
+| _(不存在)_ | `pkg/channels/registry.go` | 新增工厂注册表 |
+| _(不存在)_ | `pkg/channels/errors.go` + `errutil.go` | 新增错误分类体系 |
+| _(不存在)_ | `pkg/channels/interfaces.go` | 新增可选能力接口 |
+| _(不存在)_ | `pkg/channels/media.go` | 新增 MediaSender 接口 |
+| _(不存在)_ | `pkg/channels/webhook.go` | 新增 WebhookHandler/HealthChecker |
+| _(不存在)_ | `pkg/channels/whatsapp_native/` | 新增 WhatsApp 原生模式（whatsmeow） |
+| _(不存在)_ | `pkg/channels/split.go` | 新增消息分割（从 utils 迁入） |
+| _(不存在)_ | `pkg/bus/types.go` | 新增结构化消息类型 |
+| _(不存在)_ | `pkg/media/store.go` | 新增媒体文件生命周期管理 |
+| _(不存在)_ | `pkg/identity/identity.go` | 新增统一用户身份 |
 
 #### 步骤 3：迁移你的 Channel 代码
 
@@ -383,25 +380,22 @@ if !c.IsAllowed(senderID) { return }
 
 Manager 已被完全重写。你的修改需要理解新架构：
 
-| 旧 Manager 职责                    | 新 Manager 职责                                                                                                                         |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 直接构造 channel（switch/if-else） | 通过工厂注册表查找并构造                                                                                                                |
-| 直接调用 channel.Send              | 通过 per-channel Worker 队列 + 速率限制 + 重试                                                                                          |
-| 无消息分割                         | 自动根据 MaxMessageLength 分割长消息                                                                                                    |
-| 各 channel 自建 HTTP 服务器        | 统一共享 HTTP 服务器                                                                                                                    |
-| 无 Typing/Placeholder 管理         | 统一 preSend 处理 Typing 停止 + Reaction 撤销 + Placeholder 编辑；入站侧 BaseChannel.HandleMessage 自动编排 Typing/Reaction/Placeholder |
-| 无 TTL 清理                        | runTTLJanitor 定期清理过期 Typing/Reaction/Placeholder 条目                                                                             |
+| 旧 Manager 职责 | 新 Manager 职责 |
+|---|---|
+| 直接构造 channel（switch/if-else） | 通过工厂注册表查找并构造 |
+| 直接调用 channel.Send | 通过 per-channel Worker 队列 + 速率限制 + 重试 |
+| 无消息分割 | 自动根据 MaxMessageLength 分割长消息 |
+| 各 channel 自建 HTTP 服务器 | 统一共享 HTTP 服务器 |
+| 无 Typing/Placeholder 管理 | 统一 preSend 处理 Typing 停止 + Reaction 撤销 + Placeholder 编辑；入站侧 BaseChannel.HandleMessage 自动编排 Typing/Reaction/Placeholder |
+| 无 TTL 清理 | runTTLJanitor 定期清理过期 Typing/Reaction/Placeholder 条目 |
 
 ### 2.3 如果你有 Agent Loop 的修改
 
 Agent Loop 的主要变化：
 
-1. **MediaStore 注入**：`agentLoop.SetMediaStore(mediaStore)` — Agent 通过 MediaStore 解
-   析工具产生的媒体引用
-2. **ChannelManager 注入**：`agentLoop.SetChannelManager(channelManager)` — Agent 可查询
-   channel 状态
-3. **OutboundMediaMessage**：Agent 现在通过 `bus.PublishOutboundMedia()` 发送媒体消息，
-   而非嵌入文本回复
+1. **MediaStore 注入**：`agentLoop.SetMediaStore(mediaStore)` — Agent 通过 MediaStore 解析工具产生的媒体引用
+2. **ChannelManager 注入**：`agentLoop.SetChannelManager(channelManager)` — Agent 可查询 channel 状态
+3. **OutboundMediaMessage**：Agent 现在通过 `bus.PublishOutboundMedia()` 发送媒体消息，而非嵌入文本回复
 4. **extractPeer**：路由使用 `msg.Peer` 结构化字段而非 Metadata 查找
 
 ---
@@ -732,9 +726,7 @@ func (c *MatrixChannel) HealthHandler(w http.ResponseWriter, r *http.Request) {
 
 ### 3.4 入站侧 Typing/Reaction/Placeholder 自动编排
 
-`BaseChannel.HandleMessage` 在发布入站消息**之前**，自动检测 channel 是否实现了
-`TypingCapable`、`ReactionCapable` 和/或 `PlaceholderCapable`，并触发相应的指示器。三条
-管道完全独立，互不干扰：
+`BaseChannel.HandleMessage` 在发布入站消息**之前**，自动检测 channel 是否实现了 `TypingCapable`、`ReactionCapable` 和/或 `PlaceholderCapable`，并触发相应的指示器。三条管道完全独立，互不干扰：
 
 ```go
 // BaseChannel.HandleMessage 内部自动执行（无需 channel 手动调用）：
@@ -761,27 +753,19 @@ if c.owner != nil && c.placeholderRecorder != nil {
 ```
 
 **这意味着**：
-
-- 实现 `TypingCapable` 的 channel（Telegram、Discord、LINE、Pico）无需在 `handleMessage`
-  中手动调用 `StartTyping` + `RecordTypingStop`
-- 实现 `ReactionCapable` 的 channel（Slack、OneBot）无需在 `handleMessage` 中手动调用
-  `AddReaction` + `RecordTypingStop`
-- 实现 `PlaceholderCapable` 的 channel（Telegram、Discord、Pico）无需在 `handleMessage`
-  中手动发送占位消息并调用 `RecordPlaceholder`
+- 实现 `TypingCapable` 的 channel（Telegram、Discord、LINE、Pico）无需在 `handleMessage` 中手动调用 `StartTyping` + `RecordTypingStop`
+- 实现 `ReactionCapable` 的 channel（Slack、OneBot）无需在 `handleMessage` 中手动调用 `AddReaction` + `RecordTypingStop`
+- 实现 `PlaceholderCapable` 的 channel（Telegram、Discord、Pico）无需在 `handleMessage` 中手动发送占位消息并调用 `RecordPlaceholder`
 - Channel 只需实现对应接口，`HandleMessage` 会自动完成编排
 - 不实现这些接口的 channel 不受影响（类型断言会失败，跳过）
-- `PlaceholderCapable` 的 `SendPlaceholder` 方法内部根据配置的
-  `PlaceholderConfig.Enabled` 决定是否发送；返回 `("", nil)` 时跳过注册
+- `PlaceholderCapable` 的 `SendPlaceholder` 方法内部根据配置的 `PlaceholderConfig.Enabled` 决定是否发送；返回 `("", nil)` 时跳过注册
 
-**Owner 注入**：Manager 在 `initChannel` 中自动调用 `SetOwner(ch)` 将具体 channel 注入
-BaseChannel，无需开发者手动设置。
+**Owner 注入**：Manager 在 `initChannel` 中自动调用 `SetOwner(ch)` 将具体 channel 注入 BaseChannel，无需开发者手动设置。
 
 当 Agent 处理完消息后，Manager 的 `preSend` 会自动：
-
 1. 调用已记录的 `stop()` 停止 Typing
 2. 调用已记录的 `undo()` 撤销 Reaction
-3. 如果有 Placeholder，且 channel 实现了 `MessageEditor`，尝试编辑 Placeholder 为最终回
-   复（跳过 Send）
+3. 如果有 Placeholder，且 channel 实现了 `MessageEditor`，尝试编辑 Placeholder 为最终回复（跳过 Send）
 
 ### 3.5 注册配置和 Gateway 接入
 
@@ -813,9 +797,7 @@ if m.config.Channels.Matrix.Enabled && m.config.Channels.Matrix.Token != "" {
 }
 ```
 
-> **注意**：如果你的 channel 有多种模式（如 WhatsApp Bridge vs Native），需要在
-> initChannels 中根据配置分支：
->
+> **注意**：如果你的 channel 有多种模式（如 WhatsApp Bridge vs Native），需要在 initChannels 中根据配置分支：
 > ```go
 > if cfg.UseNative {
 >     m.initChannel("whatsapp_native", "WhatsApp Native")
@@ -853,21 +835,19 @@ type MessageBus struct {
 
 **关键行为**：
 
-| 方法                             | 行为                                                                                                |
-| -------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `PublishInbound(ctx, msg)`       | 检查 closed → 发送到 inbound channel → 阻塞/超时/关闭                                               |
-| `ConsumeInbound(ctx)`            | 从 inbound 读取 → 阻塞/关闭/取消                                                                    |
-| `PublishOutbound(ctx, msg)`      | 发送到 outbound channel                                                                             |
-| `SubscribeOutbound(ctx)`         | 从 outbound 读取（Manager dispatcher 调用）                                                         |
-| `PublishOutboundMedia(ctx, msg)` | 发送到 outboundMedia channel                                                                        |
-| `SubscribeOutboundMedia(ctx)`    | 从 outboundMedia 读取（Manager media dispatcher 调用）                                              |
-| `Close()`                        | CAS 关闭 → close(done) → 排水所有 channel（**不关闭 channel 本身**，避免并发 send-on-closed panic） |
+| 方法 | 行为 |
+|------|------|
+| `PublishInbound(ctx, msg)` | 检查 closed → 发送到 inbound channel → 阻塞/超时/关闭 |
+| `ConsumeInbound(ctx)` | 从 inbound 读取 → 阻塞/关闭/取消 |
+| `PublishOutbound(ctx, msg)` | 发送到 outbound channel |
+| `SubscribeOutbound(ctx)` | 从 outbound 读取（Manager dispatcher 调用） |
+| `PublishOutboundMedia(ctx, msg)` | 发送到 outboundMedia channel |
+| `SubscribeOutboundMedia(ctx)` | 从 outboundMedia 读取（Manager media dispatcher 调用） |
+| `Close()` | CAS 关闭 → close(done) → 排水所有 channel（**不关闭 channel 本身**，避免并发 send-on-closed panic） |
 
 **设计要点**：
-
 - 缓冲区从 16 增至 64，减少突发负载下的阻塞
-- `Close()` 不关闭底层 channel（只关闭 `done` 信号通道），因为可能有正在并发 `Publish`
-  的 goroutine
+- `Close()` 不关闭底层 channel（只关闭 `done` 信号通道），因为可能有正在并发 `Publish` 的 goroutine
 - 排水循环确保 buffered 消息不被静默丢弃
 
 ### 4.2 结构化消息类型
@@ -935,20 +915,20 @@ type MediaPart struct {
 
 BaseChannel 是所有 channel 的共享抽象层，提供以下能力：
 
-| 方法/特性                                                   | 说明                                                                                              |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `Name() string`                                             | Channel 名称                                                                                      |
-| `IsRunning() bool`                                          | 原子读取运行状态                                                                                  |
-| `SetRunning(bool)`                                          | 原子设置运行状态                                                                                  |
-| `MaxMessageLength() int`                                    | 消息长度限制（rune 计数），0 = 无限制                                                             |
-| `ReasoningChannelID() string`                               | 思维链路由目标 channel ID（空 = 不路由）                                                          |
-| `IsAllowed(senderID string) bool`                           | 旧格式允许列表检查（支持 `"id\|username"` 和 `"@username"` 格式）                                 |
-| `IsAllowedSender(sender SenderInfo) bool`                   | 新格式允许列表检查（委托给 `identity.MatchAllowed`）                                              |
-| `ShouldRespondInGroup(isMentioned, content) (bool, string)` | 统一群聊触发过滤逻辑                                                                              |
-| `HandleMessage(...)`                                        | 统一入站消息处理：权限检查 → 构建 MediaScope → 自动触发 Typing/Reaction/Placeholder → 发布到 Bus  |
-| `SetMediaStore(s) / GetMediaStore()`                        | Manager 注入的媒体存储                                                                            |
-| `SetPlaceholderRecorder(r) / GetPlaceholderRecorder()`      | Manager 注入的占位符记录器                                                                        |
-| `SetOwner(ch) `                                             | Manager 注入的具体 channel 引用（用于 HandleMessage 内部的 Typing/Reaction/Placeholder 类型断言） |
+| 方法/特性 | 说明 |
+|---|---|
+| `Name() string` | Channel 名称 |
+| `IsRunning() bool` | 原子读取运行状态 |
+| `SetRunning(bool)` | 原子设置运行状态 |
+| `MaxMessageLength() int` | 消息长度限制（rune 计数），0 = 无限制 |
+| `ReasoningChannelID() string` | 思维链路由目标 channel ID（空 = 不路由） |
+| `IsAllowed(senderID string) bool` | 旧格式允许列表检查（支持 `"id\|username"` 和 `"@username"` 格式） |
+| `IsAllowedSender(sender SenderInfo) bool` | 新格式允许列表检查（委托给 `identity.MatchAllowed`） |
+| `ShouldRespondInGroup(isMentioned, content) (bool, string)` | 统一群聊触发过滤逻辑 |
+| `HandleMessage(...)` | 统一入站消息处理：权限检查 → 构建 MediaScope → 自动触发 Typing/Reaction/Placeholder → 发布到 Bus |
+| `SetMediaStore(s) / GetMediaStore()` | Manager 注入的媒体存储 |
+| `SetPlaceholderRecorder(r) / GetPlaceholderRecorder()` | Manager 注入的占位符记录器 |
+| `SetOwner(ch) ` | Manager 注入的具体 channel 引用（用于 HandleMessage 内部的 Typing/Reaction/Placeholder 类型断言） |
 
 **功能选项**：
 
@@ -969,8 +949,7 @@ func RegisterFactory(name string, f ChannelFactory)   // 子包 init() 中调用
 func getFactory(name string) (ChannelFactory, bool)    // Manager 内部调用
 ```
 
-工厂注册表使用 `sync.RWMutex` 保护，在 `init()` 阶段注册（进程启动时完成）。Manager 在
-`initChannel()` 中通过名字查找工厂并调用它。
+工厂注册表使用 `sync.RWMutex` 保护，在 `init()` 阶段注册（进程启动时完成）。Manager 在 `initChannel()` 中通过名字查找工厂并调用它。
 
 ### 4.5 错误分类与重试
 
@@ -1108,7 +1087,6 @@ Manager {
 ```
 
 TTL 清理：
-
 - Typing 停止函数：5 分钟 TTL（到期后自动调用 stop 并删除）
 - Reaction 撤销函数：5 分钟 TTL（到期后自动调用 undo 并删除）
 - Placeholder ID：10 分钟 TTL（到期后删除）
@@ -1121,14 +1099,13 @@ TTL 清理：
 `SplitMessage(content string, maxLen int) []string`
 
 智能分割策略：
-
 1. 计算有效分割点 = maxLen - 10% 缓冲区（为代码块闭合留空间）
 2. 优先在换行符处分割
 3. 其次在空格/制表符处分割
 4. 检测未闭合的代码块（` ``` `）
 5. 如果代码块未闭合：
    - 尝试扩展到 maxLen 以包含闭合围栏
-   - 如果代码块太长，注入闭合/重开围栏（` \n```\n ` + header）
+   - 如果代码块太长，注入闭合/重开围栏（`\n```\n` + header）
    - 最后手段：在代码块开始前分割
 
 ### 4.8 MediaStore
@@ -1145,7 +1122,6 @@ type MediaStore interface {
 ```
 
 **FileMediaStore 实现**：
-
 - 纯内存映射，不复制/移动文件
 - 引用格式：`media://<uuid>`
 - Scope 格式：`channel:chatID:messageID`（由 `BuildMediaScope` 生成）
@@ -1172,17 +1148,19 @@ func ParseCanonicalID(canonical string) (platform, id string, ok bool)
 func MatchAllowed(sender bus.SenderInfo, allowed string) bool
 ```
 
-`MatchAllowed` 支持的允许列表格式： | 格式 | 匹配方式 | |------|----------| | `"123456"`
-| 匹配 `sender.PlatformID` | | `"@alice"` | 匹配 `sender.Username` | | `"123456\|alice"`
-| 匹配 PlatformID 或 Username（旧格式兼容） | | `"telegram:123456"` | 精确匹配
-`sender.CanonicalID`（新格式） |
+`MatchAllowed` 支持的允许列表格式：
+| 格式 | 匹配方式 |
+|------|----------|
+| `"123456"` | 匹配 `sender.PlatformID` |
+| `"@alice"` | 匹配 `sender.Username` |
+| `"123456\|alice"` | 匹配 PlatformID 或 Username（旧格式兼容） |
+| `"telegram:123456"` | 精确匹配 `sender.CanonicalID`（新格式） |
 
 ### 4.10 共享 HTTP 服务器
 
 **文件**：`pkg/channels/manager.go` 的 `SetupHTTPServer`
 
 Manager 创建单一 `http.Server`，自动发现和注册：
-
 - 实现 `WebhookHandler` 的 channel → 挂载到 `wh.WebhookPath()`
 - 实现 `HealthChecker` 的 channel → 挂载到 `hc.HealthPath()`
 - Health 全局端点由 `health.Server.RegisterOnMux` 注册
@@ -1195,42 +1173,26 @@ Manager 创建单一 `http.Server`，自动发现和注册：
 
 ### 5.1 必须遵守的约定
 
-1. **错误分类是合约**：Channel 的 `Send` 方法**必须**返回哨兵错误（或包装它们）。Manager
-   的重试策略完全依赖 `errors.Is` 检查。如果返回未分类的错误，Manager 会按"未知错误"处理
-   （指数退避重试）。
+1. **错误分类是合约**：Channel 的 `Send` 方法**必须**返回哨兵错误（或包装它们）。Manager 的重试策略完全依赖 `errors.Is` 检查。如果返回未分类的错误，Manager 会按"未知错误"处理（指数退避重试）。
 
-2. **SetRunning 是生命周期信号**：`Start` 成功后**必须**调用
-   `c.SetRunning(true)`，`Stop` 开始时**必须**调用 `c.SetRunning(false)`。`Send` 中**必
-   须**检查 `c.IsRunning()` 并返回 `ErrNotRunning`。
+2. **SetRunning 是生命周期信号**：`Start` 成功后**必须**调用 `c.SetRunning(true)`，`Stop` 开始时**必须**调用 `c.SetRunning(false)`。`Send` 中**必须**检查 `c.IsRunning()` 并返回 `ErrNotRunning`。
 
-3. **HandleMessage 包含权限检查**：不要在调用 `HandleMessage` 之前自行进行权限检查（除非
-   你需要在检查前做平台特定的预处理）。`HandleMessage` 内部已经调用
-   `IsAllowedSender`/`IsAllowed`。
+3. **HandleMessage 包含权限检查**：不要在调用 `HandleMessage` 之前自行进行权限检查（除非你需要在检查前做平台特定的预处理）。`HandleMessage` 内部已经调用 `IsAllowedSender`/`IsAllowed`。
 
-4. **消息分割由 Manager 处理**：Channel 的 `Send` 方法不需要处理长消息分割。Manager 会在
-   调用 `Send` 之前根据 `MaxMessageLength()` 自动分割。Channel 只需通过
-   `WithMaxMessageLength` 声明限制。
+4. **消息分割由 Manager 处理**：Channel 的 `Send` 方法不需要处理长消息分割。Manager 会在调用 `Send` 之前根据 `MaxMessageLength()` 自动分割。Channel 只需通过 `WithMaxMessageLength` 声明限制。
 
-5. **Typing/Reaction/Placeholder 由 BaseChannel + Manager 自动处理**：Channel 的 `Send`
-   方法不需要管理 Typing 停止、Reaction 撤销或 Placeholder 编辑
-   。`BaseChannel.HandleMessage` 在入站侧自动触发 `TypingCapable`、`ReactionCapable` 和
-   `PlaceholderCapable`（通过 `owner` 类型断言）；Manager 的 `preSend` 在出站侧自动停止
-   Typing、撤销 Reaction、编辑 Placeholder。Channel 只需实现对应接口即可。
+5. **Typing/Reaction/Placeholder 由 BaseChannel + Manager 自动处理**：Channel 的 `Send` 方法不需要管理 Typing 停止、Reaction 撤销或 Placeholder 编辑。`BaseChannel.HandleMessage` 在入站侧自动触发 `TypingCapable`、`ReactionCapable` 和 `PlaceholderCapable`（通过 `owner` 类型断言）；Manager 的 `preSend` 在出站侧自动停止 Typing、撤销 Reaction、编辑 Placeholder。Channel 只需实现对应接口即可。
 
-6. **工厂注册在 init() 中**：每个子包必须有 `init.go` 文件调用
-   `channels.RegisterFactory`。Gateway 必须通过 blank import（`_ "pkg/channels/xxx"`）触
-   发注册。
+6. **工厂注册在 init() 中**：每个子包必须有 `init.go` 文件调用 `channels.RegisterFactory`。Gateway 必须通过 blank import（`_ "pkg/channels/xxx"`）触发注册。
 
 ### 5.2 Metadata 字段使用约定
 
 **不要再把以下信息放入 Metadata**：
-
 - `peer_kind` / `peer_id` → 使用 `InboundMessage.Peer`
 - `message_id` → 使用 `InboundMessage.MessageID`
 - `sender_platform` / `sender_username` → 使用 `InboundMessage.Sender`
 
 **Metadata 仅用于**：
-
 - Channel 特有的扩展信息（如 Telegram 的 `reply_to_message_id`）
 - 不适合放入结构化字段的临时信息
 
@@ -1238,8 +1200,7 @@ Manager 创建单一 `http.Server`，自动发现和注册：
 
 - `BaseChannel.running`：使用 `atomic.Bool`，线程安全
 - `Manager.channels` / `Manager.workers`：使用 `sync.RWMutex` 保护
-- `Manager.placeholders` / `Manager.typingStops` / `Manager.reactionUndos`：使用
-  `sync.Map`
+- `Manager.placeholders` / `Manager.typingStops` / `Manager.reactionUndos`：使用 `sync.Map`
 - `MessageBus.closed`：使用 `atomic.Bool`
 - `FileMediaStore`：使用 `sync.RWMutex`，两阶段操作减少持锁时间
 - Channel Worker queue：Go channel，天然并发安全
@@ -1247,7 +1208,6 @@ Manager 创建单一 `http.Server`，自动发现和注册：
 ### 5.4 测试约定
 
 已有测试文件：
-
 - `pkg/channels/base_test.go` — BaseChannel 单元测试
 - `pkg/channels/manager_test.go` — Manager 单元测试
 - `pkg/channels/split_test.go` — 消息分割测试
@@ -1255,7 +1215,6 @@ Manager 创建单一 `http.Server`，自动发现和注册：
 - `pkg/channels/errutil_test.go` — 错误分类测试
 
 为新 channel 添加测试时：
-
 ```bash
 go test ./pkg/channels/matrix/ -v              # 子包测试
 go test ./pkg/channels/ -run TestSpecific -v    # 框架测试
@@ -1268,40 +1227,40 @@ make test                                       # 全量测试
 
 ### A.1 框架层文件
 
-| 文件                         | 职责                                                                                        |
-| ---------------------------- | ------------------------------------------------------------------------------------------- |
-| `pkg/channels/base.go`       | BaseChannel 结构体、Channel 接口、MessageLengthProvider、BaseChannelOption、HandleMessage   |
+| 文件 | 职责 |
+|------|------|
+| `pkg/channels/base.go` | BaseChannel 结构体、Channel 接口、MessageLengthProvider、BaseChannelOption、HandleMessage |
 | `pkg/channels/interfaces.go` | TypingCapable、MessageEditor、ReactionCapable、PlaceholderCapable、PlaceholderRecorder 接口 |
-| `pkg/channels/media.go`      | MediaSender 接口                                                                            |
-| `pkg/channels/webhook.go`    | WebhookHandler、HealthChecker 接口                                                          |
-| `pkg/channels/errors.go`     | ErrNotRunning、ErrRateLimit、ErrTemporary、ErrSendFailed 哨兵                               |
-| `pkg/channels/errutil.go`    | ClassifySendError、ClassifyNetError 帮助函数                                                |
-| `pkg/channels/registry.go`   | RegisterFactory、getFactory 工厂注册表                                                      |
-| `pkg/channels/manager.go`    | Manager：Worker 队列、速率限制、重试、preSend、共享 HTTP、TTL janitor                       |
-| `pkg/channels/split.go`      | SplitMessage 长消息分割                                                                     |
-| `pkg/bus/bus.go`             | MessageBus 实现                                                                             |
-| `pkg/bus/types.go`           | Peer、SenderInfo、InboundMessage、OutboundMessage、OutboundMediaMessage、MediaPart          |
-| `pkg/media/store.go`         | MediaStore 接口、FileMediaStore 实现                                                        |
-| `pkg/identity/identity.go`   | BuildCanonicalID、ParseCanonicalID、MatchAllowed                                            |
+| `pkg/channels/media.go` | MediaSender 接口 |
+| `pkg/channels/webhook.go` | WebhookHandler、HealthChecker 接口 |
+| `pkg/channels/errors.go` | ErrNotRunning、ErrRateLimit、ErrTemporary、ErrSendFailed 哨兵 |
+| `pkg/channels/errutil.go` | ClassifySendError、ClassifyNetError 帮助函数 |
+| `pkg/channels/registry.go` | RegisterFactory、getFactory 工厂注册表 |
+| `pkg/channels/manager.go` | Manager：Worker 队列、速率限制、重试、preSend、共享 HTTP、TTL janitor |
+| `pkg/channels/split.go` | SplitMessage 长消息分割 |
+| `pkg/bus/bus.go` | MessageBus 实现 |
+| `pkg/bus/types.go` | Peer、SenderInfo、InboundMessage、OutboundMessage、OutboundMediaMessage、MediaPart |
+| `pkg/media/store.go` | MediaStore 接口、FileMediaStore 实现 |
+| `pkg/identity/identity.go` | BuildCanonicalID、ParseCanonicalID、MatchAllowed |
 
 ### A.2 Channel 子包
 
-| 子包                            | 注册名              | 可选接口                                                         |
-| ------------------------------- | ------------------- | ---------------------------------------------------------------- |
-| `pkg/channels/telegram/`        | `"telegram"`        | TypingCapable, PlaceholderCapable, MessageEditor, MediaSender    |
-| `pkg/channels/discord/`         | `"discord"`         | TypingCapable, PlaceholderCapable, MessageEditor, MediaSender    |
-| `pkg/channels/slack/`           | `"slack"`           | ReactionCapable, MediaSender                                     |
-| `pkg/channels/line/`            | `"line"`            | TypingCapable, MediaSender, WebhookHandler                       |
-| `pkg/channels/onebot/`          | `"onebot"`          | ReactionCapable, MediaSender                                     |
-| `pkg/channels/dingtalk/`        | `"dingtalk"`        | —                                                                |
-| `pkg/channels/feishu/`          | `"feishu"`          | — (架构特定 build tags: `feishu_32.go` / `feishu_64.go`)         |
-| `pkg/channels/wecom/`           | `"wecom"`           | WebhookHandler, HealthChecker                                    |
-| `pkg/channels/wecom/`           | `"wecom_app"`       | MediaSender, WebhookHandler, HealthChecker                       |
-| `pkg/channels/qq/`              | `"qq"`              | —                                                                |
-| `pkg/channels/whatsapp/`        | `"whatsapp"`        | — (Bridge 模式)                                                  |
-| `pkg/channels/whatsapp_native/` | `"whatsapp_native"` | — (原生 whatsmeow 模式)                                          |
-| `pkg/channels/maixcam/`         | `"maixcam"`         | —                                                                |
-| `pkg/channels/pico/`            | `"pico"`            | TypingCapable, PlaceholderCapable, MessageEditor, WebhookHandler |
+| 子包 | 注册名 | 可选接口 |
+|------|--------|----------|
+| `pkg/channels/telegram/` | `"telegram"` | TypingCapable, PlaceholderCapable, MessageEditor, MediaSender |
+| `pkg/channels/discord/` | `"discord"` | TypingCapable, PlaceholderCapable, MessageEditor, MediaSender |
+| `pkg/channels/slack/` | `"slack"` | ReactionCapable, MediaSender |
+| `pkg/channels/line/` | `"line"` | TypingCapable, MediaSender, WebhookHandler |
+| `pkg/channels/onebot/` | `"onebot"` | ReactionCapable, MediaSender |
+| `pkg/channels/dingtalk/` | `"dingtalk"` | — |
+| `pkg/channels/feishu/` | `"feishu"` | — (架构特定 build tags: `feishu_32.go` / `feishu_64.go`) |
+| `pkg/channels/wecom/` | `"wecom"` | WebhookHandler, HealthChecker |
+| `pkg/channels/wecom/` | `"wecom_app"` | MediaSender, WebhookHandler, HealthChecker |
+| `pkg/channels/qq/` | `"qq"` | — |
+| `pkg/channels/whatsapp/` | `"whatsapp"` | — (Bridge 模式) |
+| `pkg/channels/whatsapp_native/` | `"whatsapp_native"` | — (原生 whatsmeow 模式) |
+| `pkg/channels/maixcam/` | `"maixcam"` | — |
+| `pkg/channels/pico/` | `"pico"` | TypingCapable, PlaceholderCapable, MessageEditor, WebhookHandler |
 
 ### A.3 接口速查表
 
@@ -1397,44 +1356,28 @@ agentLoop.Stop()               // 停止 Agent
 
 ### A.5 Per-channel 速率限制参考
 
-| Channel  | 速率 (msg/s) | Burst |
-| -------- | ------------ | ----- |
-| telegram | 20           | 10    |
-| discord  | 1            | 1     |
-| slack    | 1            | 1     |
-| line     | 10           | 5     |
-| _其他_   | 10 (默认)    | 5     |
+| Channel | 速率 (msg/s) | Burst |
+|---------|-------------|-------|
+| telegram | 20 | 10 |
+| discord | 1 | 1 |
+| slack | 1 | 1 |
+| line | 10 | 5 |
+| _其他_ | 10 (默认) | 5 |
 
 ### A.6 已知限制和注意事项
 
-1. **媒体清理暂时禁用**：Agent loop 中的 `ReleaseAll` 调用被注释掉了
-   （`refactor(loop): disable media cleanup to prevent premature file deletion`），因为
-   会话边界尚未明确定义。TTL 清理仍然有效。
+1. **媒体清理暂时禁用**：Agent loop 中的 `ReleaseAll` 调用被注释掉了（`refactor(loop): disable media cleanup to prevent premature file deletion`），因为会话边界尚未明确定义。TTL 清理仍然有效。
 
-2. **Feishu 架构特定编译**：Feishu channel 使用 build tags 区分 32 位和 64 位架构
-   （`feishu_32.go` / `feishu_64.go`）。Feishu 使用 SDK 的 WebSocket 模式（非 HTTP
-   webhook），因此不实现 `WebhookHandler`。
+2. **Feishu 架构特定编译**：Feishu channel 使用 build tags 区分 32 位和 64 位架构（`feishu_32.go` / `feishu_64.go`）。Feishu 使用 SDK 的 WebSocket 模式（非 HTTP webhook），因此不实现 `WebhookHandler`。
 
-3. **WeCom 有两个工厂**：`"wecom"`（Bot 模式，纯 webhook）和 `"wecom_app"`（应用模式，支
-   持 MediaSender）分别注册。两者都实现了 `WebhookHandler` 和 `HealthChecker`。
+3. **WeCom 有两个工厂**：`"wecom"`（Bot 模式，纯 webhook）和 `"wecom_app"`（应用模式，支持 MediaSender）分别注册。两者都实现了 `WebhookHandler` 和 `HealthChecker`。
 
-4. **Pico Protocol**：`pkg/channels/pico/` 实现了一个自定义的 OdooClaw 原生协议
-   channel，通过 WebSocket webhook (`/pico/ws`) 接收消息。
+4. **Pico Protocol**：`pkg/channels/pico/` 实现了一个自定义的 OdooClaw 原生协议 channel，通过 WebSocket webhook (`/pico/ws`) 接收消息。
 
-5. **WhatsApp 有两种模式**：`"whatsapp"`（Bridge 模式，通过外部 bridge URL 通信）和
-   `"whatsapp_native"`（原生 whatsmeow 模式，直接连接 WhatsApp）。Manager 根据
-   `WhatsAppConfig.UseNative` 决定初始化哪个。
+5. **WhatsApp 有两种模式**：`"whatsapp"`（Bridge 模式，通过外部 bridge URL 通信）和 `"whatsapp_native"`（原生 whatsmeow 模式，直接连接 WhatsApp）。Manager 根据 `WhatsAppConfig.UseNative` 决定初始化哪个。
 
-6. **DingTalk 使用 Stream 模式**：DingTalk 使用 SDK 的 Stream/WebSocket 模式（非 HTTP
-   webhook），因此不实现 `WebhookHandler`。
+6. **DingTalk 使用 Stream 模式**：DingTalk 使用 SDK 的 Stream/WebSocket 模式（非 HTTP webhook），因此不实现 `WebhookHandler`。
 
-7. **PlaceholderConfig 的配置与实现**：`PlaceholderConfig` 出现在 6 个 channel config 中
-   （Telegram、Discord、Slack、LINE、OneBot、Pico），但只有实现了 `PlaceholderCapable` +
-   `MessageEditor` 的 channel（Telegram、Discord、Pico）能真正使用占位消息编辑功能。其余
-   channel 的 `PlaceholderConfig` 为预留字段。
+7. **PlaceholderConfig 的配置与实现**：`PlaceholderConfig` 出现在 6 个 channel config 中（Telegram、Discord、Slack、LINE、OneBot、Pico），但只有实现了 `PlaceholderCapable` + `MessageEditor` 的 channel（Telegram、Discord、Pico）能真正使用占位消息编辑功能。其余 channel 的 `PlaceholderConfig` 为预留字段。
 
-8. **ReasoningChannelID**：大多数 channel config 都包含 `reasoning_channel_id` 字段，用
-   于将 LLM 的思维链（reasoning/thinking）路由到指定
-   channel（WhatsApp、Telegram、Feishu、Discord、MaixCam、QQ、DingTalk、Slack、LINE、OneBot、WeCom、WeComApp）
-   。注意：`PicoConfig` 目前不包含该字段。`BaseChannel` 通过 `WithReasoningChannelID` 选
-   项和 `ReasoningChannelID()` 方法暴露此配置。
+8. **ReasoningChannelID**：大多数 channel config 都包含 `reasoning_channel_id` 字段，用于将 LLM 的思维链（reasoning/thinking）路由到指定 channel（WhatsApp、Telegram、Feishu、Discord、MaixCam、QQ、DingTalk、Slack、LINE、OneBot、WeCom、WeComApp）。注意：`PicoConfig` 目前不包含该字段。`BaseChannel` 通过 `WithReasoningChannelID` 选项和 `ReasoningChannelID()` 方法暴露此配置。

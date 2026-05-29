@@ -1,11 +1,10 @@
-from collections.abc import Iterable
-from typing import Any
+from typing import Any, Dict, Iterable, Optional
 
 from odoo_mcp.core.client import OdooClient
 
 
 def build_unsupported_response(
-    capability: str, message: str, missing: Iterable[str] | None = None
+    capability: str, message: str, missing: Optional[Iterable[str]] = None
 ) -> dict:
     return {
         "ok": False,
@@ -27,7 +26,7 @@ def build_success_response(capability: str, **payload: Any) -> dict:
 
 
 def get_capabilities(client: OdooClient, user_id: int) -> dict:
-    def probe(model: str) -> dict[str, Any]:
+    def probe(model: str) -> Dict[str, Any]:
         fields = client.try_get_model_fields(model, sender_id=user_id)
         return {
             "available": fields is not None,

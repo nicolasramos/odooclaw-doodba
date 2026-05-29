@@ -6,8 +6,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from datetime import date as date_cls
-from datetime import datetime
+from datetime import date as date_cls, datetime
 from typing import Any
 
 import requests

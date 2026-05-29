@@ -1,24 +1,16 @@
 # OdooClaw Launcher
 
-> [!WARNING] This project is a temporary solution and will be refactored in the future
-> to provide a complete web service. Therefore, the APIs in this directory are not
-> stable.
+> [!WARNING]
+> This project is a temporary solution and will be refactored in the future to provide a complete web service. Therefore, the APIs in this directory are not stable.
 
-A standalone launcher for OdooClaw, providing visual JSON editing and OAuth provider
-authentication management.
+A standalone launcher for OdooClaw, providing visual JSON editing and OAuth provider authentication management.
 
 ## Features
 
-- 📝 **Config Editor** — Sidebar-based settings UI with model management, channel
-  configuration forms, and a raw JSON editor
-- 🤖 **Model Management** — Model card grid with availability status (grayed out without
-  API key), primary model selection, add/edit/delete with required/optional field
-  separation
-- 📡 **Channel Configuration** — Form-based settings for 12 channel types (Telegram,
-  Discord, Slack, WeCom, DingTalk, Feishu, LINE, WhatsApp, QQ, OneBot, MaixCAM, etc.)
-  with documentation links
-- 🔐 **Provider Auth** — Login to OpenAI (Device Code), Anthropic (API Token), Google
-  Antigravity (Browser OAuth)
+- 📝 **Config Editor** — Sidebar-based settings UI with model management, channel configuration forms, and a raw JSON editor
+- 🤖 **Model Management** — Model card grid with availability status (grayed out without API key), primary model selection, add/edit/delete with required/optional field separation
+- 📡 **Channel Configuration** — Form-based settings for 12 channel types (Telegram, Discord, Slack, WeCom, DingTalk, Feishu, LINE, WhatsApp, QQ, OneBot, MaixCAM, etc.) with documentation links
+- 🔐 **Provider Auth** — Login to OpenAI (Device Code), Anthropic (API Token), Google Antigravity (Browser OAuth)
 - 🌐 **Embedded Frontend** — Compiles to a single binary with no external dependencies
 - 🌍 **i18n** — Chinese/English language switching with browser auto-detection
 - 🎨 **Theme** — Light / Dark / System theme toggle with localStorage persistence
@@ -92,7 +84,7 @@ Saves the configuration. The request body must be a complete Config JSON object.
 
 ```json
 {
-  "agents": {"defaults": {"model_name": "gpt-5.2"}},
+  "agents": { "defaults": { "model_name": "gpt-5.2" } },
   "model_list": [
     {
       "model_name": "gpt-5.2",
@@ -106,7 +98,7 @@ Saves the configuration. The request body must be a complete Config JSON object.
 **Response** `200 OK`
 
 ```json
-{"status": "ok"}
+{ "status": "ok" }
 ```
 
 **Error** `400 Bad Request` — Invalid JSON
@@ -117,8 +109,7 @@ Saves the configuration. The request body must be a complete Config JSON object.
 
 #### GET /api/auth/status
 
-Returns the authentication status of all providers and any in-progress device code
-login.
+Returns the authentication status of all providers and any in-progress device code login.
 
 **Response** `200 OK`
 
@@ -155,7 +146,7 @@ Initiates a provider login.
 **Request Body** — `application/json`
 
 ```json
-{"provider": "openai"}
+{ "provider": "openai" }
 ```
 
 Supported `provider` values: `openai` | `anthropic` | `google-antigravity`
@@ -173,21 +164,20 @@ Returns device code info. The server polls for completion in the background.
 }
 ```
 
-The user opens `device_url` in a browser and enters `user_code`. Once authenticated,
-`GET /api/auth/status` will show `pending_device.status` as `success`.
+The user opens `device_url` in a browser and enters `user_code`. Once authenticated, `GET /api/auth/status` will show `pending_device.status` as `success`.
 
 ##### Anthropic (API Token)
 
 Requires a `token` field in the request:
 
 ```json
-{"provider": "anthropic", "token": "sk-ant-xxx"}
+{ "provider": "anthropic", "token": "sk-ant-xxx" }
 ```
 
 **Response:**
 
 ```json
-{"status": "success", "message": "Anthropic token saved"}
+{ "status": "success", "message": "Anthropic token saved" }
 ```
 
 ##### Google Antigravity (Browser OAuth)
@@ -202,8 +192,7 @@ Returns an authorization URL for the frontend to open in a new tab:
 }
 ```
 
-After authentication, Google redirects to `GET /auth/callback`, which saves the
-credentials and redirects back to the odooclaw-config UI.
+After authentication, Google redirects to `GET /auth/callback`, which saves the credentials and redirects back to the odooclaw-config UI.
 
 ---
 
@@ -214,7 +203,7 @@ Logs out from a provider.
 **Request Body** — `application/json`
 
 ```json
-{"provider": "openai"}
+{ "provider": "openai" }
 ```
 
 Omit or leave `provider` empty to log out from all providers.
@@ -222,22 +211,21 @@ Omit or leave `provider` empty to log out from all providers.
 **Response** `200 OK`
 
 ```json
-{"status": "ok"}
+{ "status": "ok" }
 ```
 
 ---
 
 #### GET /auth/callback
 
-OAuth browser callback endpoint (used by Google Antigravity). Called by the OAuth
-provider's redirect — **not invoked directly by the frontend**.
+OAuth browser callback endpoint (used by Google Antigravity). Called by the OAuth provider's redirect — **not invoked directly by the frontend**.
 
 **Query Parameters:**
-
 - `state` — OAuth state for CSRF validation
 - `code` — Authorization code
 
 On success, redirects to `/#auth`.
+
 
 ### Process API
 

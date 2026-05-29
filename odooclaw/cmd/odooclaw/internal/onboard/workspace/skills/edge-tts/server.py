@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-import asyncio
-import base64
-import json
-import os
 import sys
+import os
+import json
+import base64
+import asyncio
 import tempfile
 import uuid
 
@@ -124,6 +124,8 @@ class EdgeTTSManager:
             return {"isError": True, "content": f"Connection error: {str(e)}"}
 
     def _upload_attachment(self, audio_data: bytes, filename: str) -> dict:
+        import requests
+
         if not self._uid:
             auth_err = self._authenticate()
             if auth_err:
@@ -171,6 +173,8 @@ class EdgeTTSManager:
             return {"isError": True, "content": f"Upload error: {str(e)}"}
 
     def _create_voice_metadata(self, attachment_id: int) -> dict:
+        import requests
+
         if not self._uid:
             auth_err = self._authenticate()
             if auth_err:
