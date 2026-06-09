@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Any
-from pydantic import Field
+from pydantic import BaseModel, Field
 from .common import BaseOdooRequest
 
 
@@ -31,6 +31,57 @@ class CreateVendorInvoiceSchema(BaseOdooRequest):
     partner_id: int = Field(..., description="ID of the vendor")
     ref: str = Field("", description="Vendor Reference string")
     lines: List[InvoiceLineSchema] = Field(..., description="Invoice lines")
+    confirm: bool = Field(
+        False,
+        description="Legacy tool is routed through validated vendor bill creation; must be true to create.",
+    )
+    dry_run: bool = Field(True, description="Return preview without creation by default")
+    total_tolerance: float = Field(0.01, description="Allowed OCR/line total delta")
+    vendor_create_policy: str = Field(
+        "propose_create",
+        description="Vendor creation policy: search_only, propose_create, create_with_confirm",
+    )
+    confirm_partner_create: bool = Field(
+        False,
+        description="Must be true, together with confirm=true and dry_run=false, to create a missing vendor partner",
+    )
+
+
+class FindPurchaseOrderSchema(BaseOdooRequest):
+    name: Optional[str] = Field(None, description="Purchase order reference/name")
+    partner_id: Optional[int] = Field(None, description="Vendor partner ID")
+    state: Optional[str] = Field(
+        None, description="Filter by state: draft, sent, to approve, purchase, done, cancel"
+    )
+    limit: int = Field(10, description="Max results")
+
+
+class GetPurchaseOrderSummarySchema(BaseOdooRequest):
+    order_id: int = Field(..., description="purchase.order ID")
+
+
+class GetPurchaseReceiptStatusSchema(BaseOdooRequest):
+    purchase_order_id: int = Field(..., description="purchase.order ID")
+
+
+class GetPurchaseInvoiceStatusSchema(BaseOdooRequest):
+    purchase_order_id: int = Field(..., description="purchase.order ID")
+
+
+class SuggestVendorProductsSchema(BaseOdooRequest):
+    partner_id: int = Field(..., description="Vendor partner ID")
+    query: Optional[str] = Field(None, description="Optional product/vendor code search")
+    limit: int = Field(10, description="Max suggestions")
+
+
+class MatchVendorBillToPurchaseOrderSchema(BaseOdooRequest):
+    partner_id: int = Field(..., description="Vendor partner ID")
+    vendor_bill_number: Optional[str] = Field(None, description="Vendor bill reference")
+    purchase_order_id: Optional[int] = Field(None, description="Known purchase.order ID")
+    ocr_payload: Optional[Dict[str, Any]] = Field(
+        None, description="Optional normalized OCR payload with invoice lines"
+    )
+    tolerance: float = Field(0.01, description="Quantity/price matching tolerance")
 
 
 class GetPartnerSummarySchema(BaseOdooRequest):
@@ -178,6 +229,211 @@ class CreateLeadSchema(BaseOdooRequest):
     description: Optional[str] = Field(
         None, description="Internal notes or description"
     )
+
+
+
+
+class FindProductSchema(BaseOdooRequest):
+    name: Optional[str] = Field(None, description="Product name search")
+    default_code: Optional[str] = Field(None, description="Internal reference/SKU")
+    barcode: Optional[str] = Field(None, description="Product barcode")
+    category_id: Optional[int] = Field(None, description="product.category ID")
+    vendor_id: Optional[int] = Field(None, description="Vendor partner ID")
+    limit: int = Field(10, description="Max results")
+
+
+class GetProductSummarySchema(BaseOdooRequest):
+    product_id: int = Field(..., description="product.product ID")
+
+
+class GetProductSupplierInfoSchema(BaseOdooRequest):
+    product_id: int = Field(..., description="product.product ID")
+    partner_id: Optional[int] = Field(None, description="Optional vendor partner ID")
+    limit: int = Field(20, description="Max supplierinfo records")
+
+
+class GetProductStockContextSchema(BaseOdooRequest):
+    product_id: int = Field(..., description="product.product ID")
+    location_id: Optional[int] = Field(None, description="Optional stock.location ID")
+
+
+class GetStockAvailabilitySchema(BaseOdooRequest):
+    product_ids: list[int] = Field(..., description="Product IDs to summarize")
+    location_id: Optional[int] = Field(None, description="Optional stock.location ID")
+
+
+class GetLogisticsCapabilitiesSchema(BaseOdooRequest):
+    pass
+
+
+class FindReorderingRulesSchema(BaseOdooRequest):
+    product_id: Optional[int] = Field(None, description="Optional product.product ID")
+    location_id: Optional[int] = Field(None, description="Optional stock.location ID")
+    company_id: Optional[int] = Field(None, description="Optional company ID")
+    low_stock_only: bool = Field(False, description="Only rules currently requiring replenishment")
+    limit: int = Field(50, description="Max reordering rules")
+
+
+class GetReplenishmentSuggestionsSchema(BaseOdooRequest):
+    product_id: Optional[int] = Field(None, description="Optional product.product ID")
+    location_id: Optional[int] = Field(None, description="Optional stock.location ID")
+    company_id: Optional[int] = Field(None, description="Optional company ID")
+    limit: int = Field(50, description="Max suggestion rows")
+
+
+class FindInventoryDiscrepanciesSchema(BaseOdooRequest):
+    product_id: Optional[int] = Field(None, description="Optional product.product ID")
+    location_id: Optional[int] = Field(None, description="Optional stock.location ID")
+    company_id: Optional[int] = Field(None, description="Optional company ID")
+    limit: int = Field(100, description="Max discrepancy rows")
+
+
+class PrepareInventoryAdjustmentSchema(BaseOdooRequest):
+    quant_id: int = Field(..., description="stock.quant ID")
+    counted_quantity: float = Field(..., description="Physical counted quantity")
+
+
+class ApplyInventoryAdjustmentSchema(PrepareInventoryAdjustmentSchema):
+    confirm: bool = Field(False, description="Must be true to apply inventory adjustment")
+    dry_run: bool = Field(True, description="Return adjustment plan without executing")
+
+
+
+
+class FindPurchaseReceiptsSchema(BaseOdooRequest):
+    purchase_order_id: Optional[int] = Field(None, description="Optional purchase.order ID")
+    partner_id: Optional[int] = Field(None, description="Optional vendor partner ID")
+    state: Optional[str] = Field(None, description="Optional stock.picking state")
+    date_from: Optional[str] = Field(None, description="Scheduled date from YYYY-MM-DD")
+    date_to: Optional[str] = Field(None, description="Scheduled date to YYYY-MM-DD")
+    limit: int = Field(20, description="Max receipts")
+
+
+class GetReceiptSummarySchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="Incoming stock.picking ID")
+
+
+class MatchReceiptToPurchaseOrderSchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="Incoming stock.picking ID")
+    purchase_order_id: Optional[int] = Field(None, description="Optional purchase.order ID override")
+
+
+class PrepareReceiptValidationSchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="Incoming stock.picking ID")
+
+
+class ValidateReceiptSchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="Incoming stock.picking ID")
+    confirm: bool = Field(False, description="Must be true to validate receipt")
+    dry_run: bool = Field(True, description="Return validation plan without executing")
+
+
+class FindSaleDeliveriesSchema(BaseOdooRequest):
+    sale_order_id: Optional[int] = Field(None, description="Optional sale.order ID")
+    partner_id: Optional[int] = Field(None, description="Optional customer partner ID")
+    state: Optional[str] = Field(None, description="Optional stock.picking state")
+    date_from: Optional[str] = Field(None, description="Scheduled date from YYYY-MM-DD")
+    date_to: Optional[str] = Field(None, description="Scheduled date to YYYY-MM-DD")
+    limit: int = Field(20, description="Max deliveries")
+
+
+class FindInternalTransfersSchema(BaseOdooRequest):
+    state: Optional[str] = Field(None, description="Optional stock.picking state")
+    date_from: Optional[str] = Field(None, description="Scheduled date from YYYY-MM-DD")
+    date_to: Optional[str] = Field(None, description="Scheduled date to YYYY-MM-DD")
+    limit: int = Field(20, description="Max internal transfers")
+
+
+class FindLotSerialSchema(BaseOdooRequest):
+    name: Optional[str] = Field(None, description="Lot/serial name search")
+    product_id: Optional[int] = Field(None, description="Optional product.product ID")
+    company_id: Optional[int] = Field(None, description="Optional company ID")
+    limit: int = Field(20, description="Max lots/serials")
+
+
+class GetLotTraceabilitySchema(BaseOdooRequest):
+    lot_id: int = Field(..., description="stock.lot or stock.production.lot ID")
+
+
+class CheckLotRequirementsSchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="stock.picking ID")
+
+
+class GetDeliverySummarySchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="Outgoing stock.picking ID")
+
+
+class MatchDeliveryToSaleOrderSchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="Outgoing stock.picking ID")
+    sale_order_id: Optional[int] = Field(None, description="Optional sale.order ID override")
+
+
+class GetTransferSummarySchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="Internal stock.picking ID")
+
+
+class PrepareDeliveryValidationSchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="Outgoing stock.picking ID")
+
+
+class PrepareTransferValidationSchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="Internal stock.picking ID")
+
+
+class ValidateDeliverySchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="Outgoing stock.picking ID")
+    confirm: bool = Field(False, description="Must be true to validate delivery")
+    dry_run: bool = Field(True, description="Return validation plan without executing")
+
+
+class ValidateTransferSchema(BaseOdooRequest):
+    picking_id: int = Field(..., description="Internal stock.picking ID")
+    confirm: bool = Field(False, description="Must be true to validate transfer")
+    dry_run: bool = Field(True, description="Return validation plan without executing")
+
+
+class InternalTransferLineSchema(BaseModel):
+    product_id: int = Field(..., description="product.product ID")
+    quantity: float = Field(..., gt=0, description="Quantity to transfer")
+
+
+class PrepareInternalTransferSchema(BaseOdooRequest):
+    location_id: int = Field(..., description="Source stock.location ID")
+    location_dest_id: int = Field(..., description="Destination stock.location ID")
+    lines: list[InternalTransferLineSchema] = Field(..., description="Transfer lines")
+    picking_type_id: Optional[int] = Field(None, description="Optional internal stock.picking.type ID")
+    origin: Optional[str] = Field(None, description="Optional transfer origin/reference")
+
+
+class CreateInternalTransferSchema(PrepareInternalTransferSchema):
+    confirm: bool = Field(False, description="Must be true to create transfer")
+    dry_run: bool = Field(True, description="Return creation plan without executing")
+
+
+class FindStockLocationsSchema(BaseOdooRequest):
+    name: Optional[str] = Field(None, description="Location name search")
+    usage: Optional[str] = Field(None, description="Location usage: internal, supplier, customer, transit, inventory, production")
+    limit: int = Field(20, description="Max results")
+
+
+class GetLocationStockSummarySchema(BaseOdooRequest):
+    location_id: int = Field(..., description="stock.location ID")
+    product_id: Optional[int] = Field(None, description="Optional product.product ID")
+    limit: int = Field(100, description="Max stock quants")
+
+
+class GetStockMovesSchema(BaseOdooRequest):
+    product_id: Optional[int] = Field(None, description="Optional product.product ID")
+    picking_id: Optional[int] = Field(None, description="Optional stock.picking ID")
+    state: Optional[str] = Field(None, description="Optional stock.move state")
+    date_from: Optional[str] = Field(None, description="Start date YYYY-MM-DD")
+    date_to: Optional[str] = Field(None, description="End date YYYY-MM-DD")
+    limit: int = Field(50, description="Max moves")
+
+
+class ExplainStockForecastSchema(BaseOdooRequest):
+    product_id: int = Field(..., description="product.product ID")
+    limit: int = Field(20, description="Max incoming/outgoing moves")
 
 
 class GetProductStockSchema(BaseOdooRequest):
@@ -441,11 +697,20 @@ class CreateVendorBillFromOCRValidatedSchema(BaseOdooRequest):
         description="Optional ir.attachment ID to link",
     )
     confirm: bool = Field(False, description="Must be true to create vendor bill")
-    dry_run: bool = Field(False, description="Return preview without creation")
+    dry_run: bool = Field(True, description="Return preview without creation")
     company_id: Optional[int] = Field(None, description="Company override")
     allowed_company_ids: Optional[list[int]] = Field(
         None,
         description="Optional allowed_company_ids context",
+    )
+    total_tolerance: float = Field(0.01, description="Allowed OCR/line total delta")
+    vendor_create_policy: str = Field(
+        "propose_create",
+        description="Vendor creation policy: search_only, propose_create, create_with_confirm",
+    )
+    confirm_partner_create: bool = Field(
+        False,
+        description="Must be true, together with confirm=true and dry_run=false, to create a missing vendor partner",
     )
 
 

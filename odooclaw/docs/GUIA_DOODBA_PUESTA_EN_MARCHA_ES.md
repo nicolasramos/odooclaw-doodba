@@ -67,11 +67,11 @@ odooclaw:
   build:
     context: ./odooclaw
     dockerfile: docker/Dockerfile
+  env_file:
+    - .docker/odooclaw.env
   environment:
     - ODOO_URL=http://odoo:8069
     - ODOO_DB=devel
-    - ODOO_USERNAME=admin
-    - ODOO_PASSWORD=${ODOO_PASSWORD:-admin}
     - ODOOCLAW_AGENTS_DEFAULTS_PROVIDER=openai
     - ODOOCLAW_AGENTS_DEFAULTS_MODEL=gpt4
     - ODOOCLAW_PROVIDERS_OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -93,7 +93,7 @@ Notas importantes:
 
 - Usa prefijo en mayusculas `ODOOCLAW_...` para variables de entorno.
 - No dejes API keys hardcodeadas en `devel.yaml`.
-- En produccion, usa API key de Odoo en lugar de password de admin.
+- Usa un usuario interno dedicado únicamente con el grupo **OdooClaw Delegated RPC**; nunca uses un administrador general.
 - En servidores MCP usa comandos genericos (por ejemplo `whisper-stt-mcp.py`, `edge-tts-mcp.py`, `python3 -m odoo_mcp.server`) en lugar de rutas absolutas del workspace.
 
 ## 5) Variables en `.docker/odoo.env`
@@ -101,7 +101,8 @@ Notas importantes:
 Gestiona secretos en `.docker/odoo.env` (o tu `.env` central):
 
 ```env
-ODOO_PASSWORD=tu_api_key_de_odoo
+ODOO_USERNAME=odooclaw_service
+ODOO_PASSWORD=tu_password_seguro_o_api_key_de_odoo
 OPENAI_API_KEY=sk-xxxx
 OPENAI_API_BASE=https://api.openai.com/v1
 STT_PROVIDER=auto
@@ -112,6 +113,19 @@ TZ=Europe/Madrid
 ```
 
 No subas este archivo con secretos al repositorio.
+
+### 5.1 Opcional: memoria estratégica con Engram
+
+OdooClaw incluye integración interna opcional con Engram MCP para memoria estratégica duradera, pero está desactivada por defecto.
+
+Actívala solo cuando el binario `engram` exista dentro de la imagen de OdooClaw y el servidor MCP esté configurado como interno:
+
+```env
+ODOOCLAW_ENGRAM_ENABLED=true
+ODOOCLAW_ENGRAM_MCP_SERVER=engram
+```
+
+Consulta [Engram Internal Memory in Docker/Doodba](ENGRAM_DOCKER_DOODBA.md) para ver el patrón recomendado de instalación con binario versionado y verificación de checksum.
 
 ## 6) Preparar `config.json`
 
