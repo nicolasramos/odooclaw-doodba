@@ -90,9 +90,53 @@ In your `devel.yaml` or `prod.yaml`, make sure the following environment variabl
 
 - `ODOO_URL`: The URL of your Odoo instance (e.g., `http://odoo:8069`).
 - `ODOO_DB`: The name of the database.
-- `ODOO_USERNAME`: The Odoo user (use an API Key for production).
-- `ODOO_PASSWORD`: The password or API Key.
+- `ODOO_USERNAME`: Dedicated internal user with only the **OdooClaw Delegated RPC** group.
+- `ODOO_PASSWORD`: Strong password or API Key for that dedicated user.
 
-## 5. Advanced: Model Routing
+Do not use a general-purpose administrator. See [Odoo Technical User for Delegated MCP Access](ODOO_TECHNICAL_USER.md).
+
+## 5. Engram Internal Memory Configuration
+
+Engram can be used as OdooClaw's strategic-memory backend for durable project knowledge such as decisions, bug fixes, discoveries, conventions, and stable preferences.
+
+Keep Engram as an **internal MCP server** so the model cannot call raw `mem_*` tools directly. OdooClaw will expose the controlled `memory_save_strategic` tool instead.
+
+```json
+{
+  "engram": {
+    "enabled": true,
+    "mcp_server": "engram"
+  },
+  "tools": {
+    "mcp": {
+      "enabled": true,
+      "servers": {
+        "engram": {
+          "enabled": true,
+          "command": "engram",
+          "args": ["mcp"],
+          "exclude_from_auto_register": true
+        }
+      }
+    }
+  }
+}
+```
+
+| Field | Purpose |
+| --- | --- |
+| `engram.enabled` | Enables OdooClaw's strategic-memory integration. |
+| `engram.mcp_server` | MCP server name used by the internal Engram client. Defaults to `engram`. |
+| `tools.mcp.servers.engram` | Starts `engram mcp` as a normal MCP server connection. |
+| `exclude_from_auto_register` | Keeps raw Engram MCP tools internal instead of exposing them to the AI model. |
+
+Environment overrides:
+
+- `ODOOCLAW_ENGRAM_ENABLED=true`
+- `ODOOCLAW_ENGRAM_MCP_SERVER=engram`
+
+Docker/Doodba deployments must also make the `engram` binary available inside the OdooClaw container. See [Engram Internal Memory in Docker/Doodba](ENGRAM_DOCKER_DOODBA.md) for a pinned release-binary installation pattern with checksum verification.
+
+## 6. Advanced: Model Routing
 
 You can override the model for specific agents or purposes by adding more specific configurations in the `agents` section (see `config.example.json` for details).

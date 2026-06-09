@@ -8,6 +8,7 @@ OdooClaw is a specialized version of PicoClaw, tailored for integration with **O
   - [General Configuration (JSON)](CONFIGURATION.md): Detailed structure of the `config.json` file.
   - [Guia completa Doodba (ES)](GUIA_DOODBA_PUESTA_EN_MARCHA_ES.md): Instalacion, configuracion, uso y cambios de `config.json` paso a paso.
   - [Complete Doodba Guide (EN)](GUIDE_DOODBA_SETUP_EN.md): Installation, configuration, usage and `config.json` changes step by step.
+  - [Engram Internal Memory in Docker/Doodba](ENGRAM_DOCKER_DOODBA.md): Install and enable Engram as an internal strategic-memory MCP server in Docker/Doodba.
   - [Official Update Script](ODOOCLAW_OFFICIAL_UPDATE.md): Safe repository update flow that preserves `workspace/**`, `config/**`, and `.env*` files.
   - [Tools Configuration](tools_configuration.md): How to configure web search, cron jobs, etc.
 
@@ -23,8 +24,10 @@ OdooClaw is a specialized version of PicoClaw, tailored for integration with **O
 ### 3. Business Operations Guides
 - [Odoo Workforce Tools](odoo-workforce-tools.md): Attendance, check-in/out, task updates, timesheet assistance, expense reports, and pending-action notifications.
 - [Odoo Accounting Tools](odoo-accounting-tools.md): Bank reconciliation, AR/AP aging, period close checks, journal entries, tax summary, duplicate vendor-bill checks, and OCR-validated bill creation.
+- [Odoo Inventory Tools](odoo-inventory-tools.md): Product search, product summaries, stock availability, locations, quants, stock moves, and forecast context.
 - [OCR Vendor Bill & Expense Flows](ocr-vendor-bill-skill.md): Vendor bill creation plus employee expense and mileage expense extraction/creation from attachments.
 - [Odoo Private Reply Routing](odoo-private-reply-routing.md): DM-only mode, optional group mention mode, private reply targets, and user-scoped session isolation.
+- [Odoo Technical User](ODOO_TECHNICAL_USER.md): Least-privilege technical account for delegated MCP access.
 
 ### 4. The Odoo MCP Server (`odoo-mcp`)
 

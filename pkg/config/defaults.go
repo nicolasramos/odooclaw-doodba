@@ -39,6 +39,10 @@ func DefaultConfig() *Config {
 		Session: SessionConfig{
 			DMScope: "per-channel-peer",
 		},
+		Engram: EngramConfig{
+			Enabled:   false,
+			MCPServer: "engram",
+		},
 		Channels: ChannelsConfig{
 			WhatsApp: WhatsAppConfig{
 				Enabled:          false,
@@ -325,6 +329,11 @@ func DefaultConfig() *Config {
 		Gateway: GatewayConfig{
 			Host: "127.0.0.1",
 			Port: 18790,
+			TLS: GatewayTLSConfig{
+				Enabled:  false,
+				CertFile: "",
+				KeyFile:  "",
+			},
 		},
 		Tools: ToolsConfig{
 			MediaCleanup: MediaCleanupConfig{
