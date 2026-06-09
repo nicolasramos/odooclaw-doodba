@@ -198,6 +198,87 @@ func TestDefaultConfig_HeartbeatEnabled(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_EngramDisabledByDefault(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if cfg.Engram.Enabled {
+		t.Fatal("Engram should be disabled by default")
+	}
+	if cfg.Engram.MCPServer != "engram" {
+		t.Fatalf("Engram MCPServer = %q, want engram", cfg.Engram.MCPServer)
+	}
+}
+
+func TestLoadConfig_EngramCanBeEnabledFromEnv(t *testing.T) {
+	t.Setenv("ODOOCLAW_ENGRAM_ENABLED", "true")
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if !cfg.Engram.Enabled {
+		t.Fatal("Engram should be enabled from ODOOCLAW_ENGRAM_ENABLED=true")
+	}
+}
+
+func TestLoadConfig_EngramMCPServerCanBeSetFromEnv(t *testing.T) {
+	t.Setenv("ODOOCLAW_ENGRAM_MCP_SERVER", "project-memory")
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if cfg.Engram.MCPServer != "project-memory" {
+		t.Fatalf("Engram MCPServer = %q", cfg.Engram.MCPServer)
+	}
+}
+
+func TestMCPServerConfig_AutoRegistersByDefault(t *testing.T) {
+	var cfg MCPServerConfig
+	if cfg.ExcludeFromAutoRegister {
+		t.Fatal("MCP servers should be included in auto-registration by default")
+	}
+}
+
+func TestLoadConfig_MCPServerCanBeExcludedFromAutoRegister(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	configJSON := `{
+		"tools": {
+			"mcp": {
+				"enabled": true,
+				"servers": {
+					"engram": {
+						"enabled": true,
+						"command": "engram",
+						"args": ["mcp"],
+						"exclude_from_auto_register": true
+					}
+				}
+			}
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	engram := cfg.Tools.MCP.Servers["engram"]
+	if !engram.ExcludeFromAutoRegister {
+		t.Fatal("expected engram server to be excluded from global MCP tool registration")
+	}
+}
+
 // TestDefaultConfig_WorkspacePath verifies workspace path is correctly set
 func TestDefaultConfig_WorkspacePath(t *testing.T) {
 	cfg := DefaultConfig()
@@ -252,6 +333,40 @@ func TestDefaultConfig_Gateway(t *testing.T) {
 	}
 	if cfg.Gateway.Port == 0 {
 		t.Error("Gateway port should have default value")
+	}
+	if cfg.Gateway.TLS.Enabled {
+		t.Error("Gateway TLS should be disabled by default")
+	}
+	if cfg.Gateway.TLS.CertFile != "" {
+		t.Error("Gateway TLS cert file should be empty by default")
+	}
+	if cfg.Gateway.TLS.KeyFile != "" {
+		t.Error("Gateway TLS key file should be empty by default")
+	}
+}
+
+func TestLoadConfig_GatewayTLSCanBeSetFromEnv(t *testing.T) {
+	t.Setenv("ODOOCLAW_GATEWAY_TLS_ENABLED", "true")
+	t.Setenv("ODOOCLAW_GATEWAY_TLS_CERT_FILE", "/etc/odooclaw/tls.crt")
+	t.Setenv("ODOOCLAW_GATEWAY_TLS_KEY_FILE", "/etc/odooclaw/tls.key")
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if !cfg.Gateway.TLS.Enabled {
+		t.Fatal("Gateway TLS should be enabled from env")
+	}
+	if cfg.Gateway.TLS.CertFile != "/etc/odooclaw/tls.crt" {
+		t.Errorf("CertFile = %q", cfg.Gateway.TLS.CertFile)
+	}
+	if cfg.Gateway.TLS.KeyFile != "/etc/odooclaw/tls.key" {
+		t.Errorf("KeyFile = %q", cfg.Gateway.TLS.KeyFile)
 	}
 }
 
