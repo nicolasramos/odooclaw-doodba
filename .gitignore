@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv*/
+venv/
+
+# Odoo/local runtime
+*.log
+.env
+.env.*
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Browser extension build artifacts
+browser_extension/dist/*.zip
+*.zip
+
+# Internal planning docs
+docs/slices/
+.atl/
