@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,7 @@ import (
 	"github.com/nicolasramos/odooclaw/pkg/mcp"
 	"github.com/nicolasramos/odooclaw/pkg/media"
 	corememory "github.com/nicolasramos/odooclaw/pkg/memory"
+	"github.com/nicolasramos/odooclaw/pkg/multimodel"
 	"github.com/nicolasramos/odooclaw/pkg/providers"
 	"github.com/nicolasramos/odooclaw/pkg/routing"
 	"github.com/nicolasramos/odooclaw/pkg/skills"
@@ -46,6 +48,7 @@ type AgentLoop struct {
 	fallback       *providers.FallbackChain
 	channelManager *channels.Manager
 	mediaStore     media.MediaStore
+	pipeline       *multimodel.Pipeline // Multi-model pipeline (nil when disabled)
 }
 
 // processOptions configures how a message is processed
@@ -86,6 +89,53 @@ func NewAgentLoop(
 		stateManager = state.NewManager(defaultAgent.Workspace)
 	}
 
+	// Initialize multi-model pipeline if configured
+	var pipeline *multimodel.Pipeline
+	if cfg.Multimodel.Enabled {
+		pipelineCfg := multimodel.PipelineConfig{
+			Enabled: true,
+			Classifier: multimodel.ClassifierConfig{
+				Endpoint: cfg.Multimodel.Classifier.Endpoint,
+				APIKey:   cfg.Multimodel.Classifier.APIKey,
+				Model:    cfg.Multimodel.Classifier.Model,
+			},
+			Router: multimodel.RouterConfig{
+				Routes: map[string]*multimodel.ModelConfig{
+					"tool_call": {
+						Name:        "tool-model",
+						Endpoint:    cfg.Multimodel.Router.ToolCalling.Endpoint,
+						ModelID:     cfg.Multimodel.Router.ToolCalling.ModelID,
+						MaxTokens:   cfg.Multimodel.Router.ToolCalling.MaxTokens,
+						Temperature: cfg.Multimodel.Router.ToolCalling.Temperature,
+					},
+					"summary": {
+						Name:        "summarizer-model",
+						Endpoint:    cfg.Multimodel.Router.Summarizer.Endpoint,
+						ModelID:     cfg.Multimodel.Router.Summarizer.ModelID,
+						MaxTokens:   cfg.Multimodel.Router.Summarizer.MaxTokens,
+						Temperature: cfg.Multimodel.Router.Summarizer.Temperature,
+					},
+					"complex": {
+						Name:        "complex-model",
+						Endpoint:    cfg.Multimodel.Router.Complex.Endpoint,
+						ModelID:     cfg.Multimodel.Router.Complex.ModelID,
+						MaxTokens:   cfg.Multimodel.Router.Complex.MaxTokens,
+						Temperature: cfg.Multimodel.Router.Complex.Temperature,
+					},
+				},
+				Fallback: &multimodel.ModelConfig{
+					Name:        "primary-model",
+					MaxTokens:   cfg.Agents.Defaults.MaxTokens,
+					Temperature: 0.7,
+				},
+			},
+		}
+		pipeline = multimodel.NewPipeline(pipelineCfg, provider)
+		logger.InfoCF("agent", "Multi-model pipeline initialized", map[string]any{
+			"classifier_endpoint": cfg.Multimodel.Classifier.Endpoint,
+		})
+	}
+
 	return &AgentLoop{
 		bus:         msgBus,
 		cfg:         cfg,
@@ -93,6 +143,7 @@ func NewAgentLoop(
 		state:       stateManager,
 		summarizing: sync.Map{},
 		fallback:    fallbackChain,
+		pipeline:    pipeline,
 	}
 }
 
@@ -138,8 +189,12 @@ func registerSharedTools(
 		}
 
 		// Hardware tools (I2C, SPI) - Linux only, returns error on other platforms
-		agent.Tools.Register(tools.NewI2CTool())
-		agent.Tools.Register(tools.NewSPITool())
+		// Only register when devices are enabled (small local models are trained
+		// exclusively on Odoo MCP tools and hallucinate on unrelated hardware tools)
+		if cfg.Devices.Enabled {
+			agent.Tools.Register(tools.NewI2CTool())
+			agent.Tools.Register(tools.NewSPITool())
+		}
 
 		// Message tool
 		messageTool := tools.NewMessageTool()
@@ -852,7 +907,61 @@ func (al *AgentLoop) runAgentLoop(
 	// 3. Save user message to session
 	agent.Sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
 
-	// 4. Run LLM iteration loop
+	// 4. Multi-model pipeline pre-processing
+	// If the pipeline can handle this request directly (greeting, escalation),
+	// return the response immediately without calling the main LLM.
+	if al.pipeline != nil {
+		// Convert history to multimodel.Message format for classifier context
+		var mmHistory []multimodel.Message
+		for _, msg := range history {
+			if msg.Role == "user" || msg.Role == "assistant" {
+				mmHistory = append(mmHistory, multimodel.Message{
+					Role:    msg.Role,
+					Content: msg.Content,
+				})
+			}
+		}
+
+		pipelineReq := multimodel.PipelineRequest{
+			Message:    opts.UserMessage,
+			SessionKey: opts.SessionKey,
+			History:    mmHistory,
+			Metadata:   opts.Metadata,
+		}
+
+		pipelineResult, pipelineErr := al.pipeline.ProcessRequest(ctx, pipelineReq)
+		if pipelineErr != nil {
+			logger.WarnCF("agent", "Pipeline pre-process failed, falling back to main model",
+				map[string]any{"error": pipelineErr.Error()})
+		} else if pipelineResult.SkippedMain && pipelineResult.Response != "" {
+			// Pipeline handled the request directly — no need for main LLM
+			logger.InfoCF("agent", "Pipeline handled request directly",
+				map[string]any{
+					"intent":       pipelineResult.Intent.Intent,
+					"confidence":   pipelineResult.Intent.Confidence,
+					"model_used":   pipelineResult.ModelUsed,
+					"latency_ms":   pipelineResult.Latency.Milliseconds(),
+					"tokens_saved": pipelineResult.TokensUsed,
+				})
+			// Save assistant response to session
+			agent.Sessions.AddMessage(opts.SessionKey, "assistant", pipelineResult.Response)
+			agent.Sessions.Save(opts.SessionKey)
+
+			// Send response via bus if needed
+			if opts.SendResponse {
+				al.bus.PublishOutbound(ctx, bus.OutboundMessage{
+					Channel: opts.Channel,
+					ChatID:  opts.ChatID,
+					Content: pipelineResult.Response,
+				})
+			}
+
+			return pipelineResult.Response, nil
+		}
+		// If pipeline didn't skip main model, continue to regular LLM flow
+	}
+
+	// 5. Run LLM iteration loop
 	finalContent, iteration, err := al.runLLMIteration(ctx, agent, messages, opts)
 	if err != nil {
 		return "", err
@@ -976,6 +1085,14 @@ func (al *AgentLoop) runLLMIteration(
 		// Build tool definitions
 		providerToolDefs := agent.Tools.ToProviderDefs()
 
+		// Small local models (fine-tuned on ~5 tools per example) degrade with
+		// dozens of tools in context. Apply tool retrieval: keep only the top-K
+		// most relevant tools for the current user query.
+		if isLocalSmallModel(agent.Model) && len(providerToolDefs) > maxLocalToolsInPrompt {
+			query := lastUserMessageText(messages)
+			providerToolDefs = retrieveRelevantTools(providerToolDefs, query, maxLocalToolsInPrompt)
+		}
+
 		// Log LLM request details
 		logger.DebugCF("agent", "LLM request",
 			map[string]any{
@@ -1033,11 +1150,18 @@ func (al *AgentLoop) runLLMIteration(
 				}
 				return fbResult.Response, nil
 			}
-			return agent.Provider.Chat(ctx, messages, providerToolDefs, agent.Model, map[string]any{
+			opts := map[string]any{
 				"max_tokens":       agent.MaxTokens,
 				"temperature":      agent.Temperature,
 				"prompt_cache_key": agent.ID,
-			})
+			}
+			// Small local models (llama.cpp/ollama) are fine-tuned with tools
+			// listed as plain text in the system prompt. Inject them there
+			// instead of sending OpenAI JSON function schemas.
+			if isLocalSmallModel(agent.Model) {
+				opts["prompt_tools_in_text"] = true
+			}
+			return agent.Provider.Chat(ctx, messages, providerToolDefs, agent.Model, opts)
 		}
 
 		// Retry loop for context/token errors
@@ -1733,4 +1857,122 @@ func extractParentPeer(msg bus.InboundMessage) *routing.RoutePeer {
 		return nil
 	}
 	return &routing.RoutePeer{Kind: parentKind, ID: parentID}
+}
+
+// maxLocalToolsInPrompt caps how many tools are sent to small local models.
+// The fine-tuned OdooClaw models (Qwen 0.5B/1.5B) are trained with at most
+// 5 tools listed per example; more tools cause hallucination.
+const maxLocalToolsInPrompt = 5
+
+// isLocalSmallModel reports whether the model name refers to a small local
+// fine-tuned model (llama.cpp/ollama) that needs tools injected as plain text
+// and a reduced tool set.
+func isLocalSmallModel(model string) bool {
+	lower := strings.ToLower(model)
+	return strings.Contains(lower, "odooclaw") ||
+		strings.Contains(lower, "local") ||
+		strings.Contains(lower, "qwen") ||
+		strings.Contains(lower, "llama") ||
+		strings.Contains(lower, "0.5b") ||
+		strings.Contains(lower, "1.5b")
+}
+
+// lastUserMessageText returns the content of the most recent user message.
+func lastUserMessageText(messages []providers.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			return messages[i].Content
+		}
+	}
+	return ""
+}
+
+// retrieveRelevantTools selects the top-K tool definitions most relevant to the
+// user query using lightweight keyword scoring over the tool name and domain.
+// It guarantees the query's most salient Odoo domain is represented.
+func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int) []providers.ToolDefinition {
+	if len(defs) <= k {
+		return defs
+	}
+	if strings.TrimSpace(query) == "" {
+		return defs[:k]
+	}
+
+	queryLower := strings.ToLower(query)
+	// Domain keywords map to tool name fragments (English + Spanish).
+	domainKeywords := map[string][]string{
+		"partner":     {"partner", "cliente", "contact", "empresa", "acme"},
+		"product":     {"product", "producto", "stock", "almacen", "inventario"},
+		"sale":        {"sale", "venta", "orden", "pedido", "so/", "order"},
+		"invoice":     {"invoice", "factura", "facturas", "pago", "pending", "pendiente"},
+		"task":        {"task", "tarea", "proyecto", "project"},
+		"lead":        {"lead", "crm", "oportunidad"},
+		"reconcile":   {"reconcile", "conciliar", "banco", "bank"},
+		"tax":         {"tax", "impuesto", "iva"},
+		"delivery":    {"delivery", "albaran", "receipt", "recepcion"},
+		"inventory":   {"inventory", "ajuste", "adjustment", "valuation"},
+		"activity":    {"activity", "actividad", "reunion", "meeting"},
+		"chatter":     {"chatter", "mensaje", "message", "nota", "note"},
+		"purchase":    {"purchase", "compra", "po/"},
+		"account":     {"account", "cuenta", "contab"},
+		"migration":   {"migration", "migra"},
+		"report":      {"report", "informe"},
+	}
+
+	score := func(name string) int {
+		s := 0
+		lower := strings.ToLower(name)
+		for _, kw := range domainKeywords["partner"] {
+			if strings.Contains(queryLower, kw) {
+				if strings.Contains(lower, "partner") {
+					s += 3
+				}
+			}
+		}
+		for domain, kws := range domainKeywords {
+			if domain == "partner" {
+				continue
+			}
+			for _, kw := range kws {
+				if strings.Contains(queryLower, kw) && strings.Contains(lower, domain) {
+					s += 3
+				}
+			}
+		}
+		// Token overlap bonus
+		for _, tok := range strings.FieldsFunc(queryLower, func(r rune) bool {
+			return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+		}) {
+			if len(tok) >= 4 && strings.Contains(lower, tok) {
+				s += 2
+			}
+		}
+		return s
+	}
+
+	type scored struct {
+		def providers.ToolDefinition
+		s   int
+	}
+	scoredDefs := make([]scored, 0, len(defs))
+	for _, d := range defs {
+		scoredDefs = append(scoredDefs, scored{def: d, s: score(d.Function.Name)})
+	}
+	// Stable sort by score desc
+	sort.SliceStable(scoredDefs, func(i, j int) bool { return scoredDefs[i].s > scoredDefs[j].s })
+
+	out := make([]providers.ToolDefinition, 0, k)
+	seen := map[string]bool{}
+	for _, sd := range scoredDefs {
+		name := sd.def.Function.Name
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, sd.def)
+		if len(out) >= k {
+			break
+		}
+	}
+	return out
 }

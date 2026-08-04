@@ -6,9 +6,13 @@
       "model_name": "gpt4",
       "max_tokens": 8192,
       "temperature": 0.7,
-      "max_tool_iterations": 20
+      "max_tool_iterations": 20,
+      "context_window_tokens": 800000,
+      "tool_result_max_chars": 4000
     }
   },
+  "bindings": [
+  ],
   "engram": {
     "enabled": false,
     "mcp_server": "engram"
@@ -21,8 +25,8 @@
       "api_base": "https://api.openai.com/v1"
     },
     {
-      "model_name": "claude-sonnet-4.6",
-      "model": "anthropic/claude-sonnet-4.6",
+      "model_name": "claude-sonnet-4-6",
+      "model": "anthropic/claude-sonnet-4-6",
       "api_key": "sk-ant-your-key",
       "api_base": "https://api.anthropic.com/v1"
     },
@@ -412,7 +416,7 @@
     }
   },
   "heartbeat": {
-    "enabled": true,
+    "enabled": false,
     "interval": 30
   },
   "devices": {

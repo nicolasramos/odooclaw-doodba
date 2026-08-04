@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -116,14 +117,31 @@ func (p *Provider) Chat(
 	model = normalizeModel(model, p.apiBase)
 
 	requestBody := map[string]any{
-		"model":    model,
-		"messages": serializeMessages(messages),
+		"model": model,
+	}
+
+	promptToolsInText := false
+	if v, ok := options["prompt_tools_in_text"]; ok {
+		if b, ok := v.(bool); ok {
+			promptToolsInText = b
+		}
 	}
 
 	if len(tools) > 0 {
-		requestBody["tools"] = tools
-		requestBody["tool_choice"] = "auto"
+		if promptToolsInText {
+			// Small local models (Qwen 0.5B fine-tuned) are trained with tools
+			// listed as plain text in the system prompt ("HERRAMIENTAS DISPONIBLES:")
+			// and hallucinate when tools arrive as OpenAI JSON function schemas.
+			// Inject them into the last system message instead.
+			messages = injectToolsAsText(messages, tools)
+		} else {
+			requestBody["tools"] = tools
+			requestBody["tool_choice"] = "auto"
+		}
 	}
+
+	// Serialize messages AFTER injectToolsAsText may have modified them
+	requestBody["messages"] = serializeMessages(messages)
 
 	if maxTokens, ok := asInt(options["max_tokens"]); ok {
 		// Use configured maxTokensField if specified, otherwise fallback to model-based detection
@@ -282,9 +300,36 @@ func parseResponse(body []byte) (*LLMResponse, error) {
 	content := choice.Message.Content
 	finishReason := choice.FinishReason
 	if len(toolCalls) == 0 {
+		if extracted := extractLFMContentToolCalls(content); len(extracted) > 0 {
+			toolCalls = extracted
+			content = stripLFMContentToolCalls(content)
+			if finishReason == "" || finishReason == "stop" {
+				finishReason = "tool_calls"
+			}
+		}
+	}
+	if len(toolCalls) == 0 {
 		if extracted := extractGemmaContentToolCalls(content); len(extracted) > 0 {
 			toolCalls = extracted
 			content = stripGemmaContentToolCalls(content)
+			if finishReason == "" || finishReason == "stop" {
+				finishReason = "tool_calls"
+			}
+		}
+	}
+	if len(toolCalls) == 0 {
+		if extracted := extractMiniCPMContentToolCalls(content); len(extracted) > 0 {
+			toolCalls = extracted
+			content = stripMiniCPMContentToolCalls(content)
+			if finishReason == "" || finishReason == "stop" {
+				finishReason = "tool_calls"
+			}
+		}
+	}
+	if len(toolCalls) == 0 {
+		if extracted := extractQwenContentToolCalls(content); len(extracted) > 0 {
+			toolCalls = extracted
+			content = stripQwenContentToolCalls(content)
 			if finishReason == "" || finishReason == "stop" {
 				finishReason = "tool_calls"
 			}
@@ -300,6 +345,279 @@ func parseResponse(body []byte) (*LLMResponse, error) {
 		FinishReason:     finishReason,
 		Usage:            apiResponse.Usage,
 	}, nil
+}
+
+const (
+	lfmToolCallStart = "<|tool_call_start|>"
+	lfmToolCallEnd   = "<|tool_call_end|>"
+)
+
+func extractLFMContentToolCalls(text string) []ToolCall {
+	searchFrom := 0
+	callIndex := 1
+	result := make([]ToolCall, 0)
+	for {
+		relStart := strings.Index(text[searchFrom:], lfmToolCallStart)
+		if relStart == -1 {
+			break
+		}
+		start := searchFrom + relStart
+		bodyStart := start + len(lfmToolCallStart)
+		relEnd := strings.Index(text[bodyStart:], lfmToolCallEnd)
+		if relEnd == -1 {
+			break
+		}
+		bodyEnd := bodyStart + relEnd
+		calls := parseLFMContentToolCallList(text[bodyStart:bodyEnd], callIndex)
+		if len(calls) > 0 {
+			result = append(result, calls...)
+			callIndex += len(calls)
+		}
+		searchFrom = bodyEnd + len(lfmToolCallEnd)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func parseLFMContentToolCallList(raw string, startIndex int) []ToolCall {
+	toolText := strings.TrimSpace(raw)
+	if !strings.HasPrefix(toolText, "[") || !strings.HasSuffix(toolText, "]") {
+		return nil
+	}
+	body := strings.TrimSpace(toolText[1 : len(toolText)-1])
+	if body == "" {
+		return nil
+	}
+	parts := splitLFMContentTopLevel(body, ',')
+	result := make([]ToolCall, 0, len(parts))
+	for _, part := range parts {
+		call, ok := parseLFMContentFunctionCall(part, startIndex+len(result))
+		if ok {
+			result = append(result, call)
+		}
+	}
+	return result
+}
+
+func parseLFMContentFunctionCall(raw string, callIndex int) (ToolCall, bool) {
+	callText := strings.TrimSpace(raw)
+	open := strings.IndexByte(callText, '(')
+	if open <= 0 {
+		return ToolCall{}, false
+	}
+	close := findMatchingLFMDelimiter(callText, open, '(', ')')
+	if close <= open || strings.TrimSpace(callText[close:]) != "" {
+		return ToolCall{}, false
+	}
+	name := normalizeGemmaToolName(callText[:open])
+	if name == "" {
+		return ToolCall{}, false
+	}
+	argsMap := parseLFMContentKeywordArguments(callText[open+1 : close-1])
+	argsJSONBytes, _ := json.Marshal(argsMap)
+	argsJSON := string(argsJSONBytes)
+	return ToolCall{
+		ID:        "lfm_call_" + strconv.Itoa(callIndex),
+		Type:      "function",
+		Name:      name,
+		Arguments: argsMap,
+		Function:  &FunctionCall{Name: name, Arguments: argsJSON},
+	}, true
+}
+
+func parseLFMContentKeywordArguments(raw string) map[string]any {
+	result := map[string]any{}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return result
+	}
+	for _, part := range splitLFMContentTopLevel(trimmed, ',') {
+		piece := strings.TrimSpace(part)
+		if piece == "" {
+			continue
+		}
+		idx := indexLFMContentTopLevelEqual(piece)
+		if idx <= 0 {
+			continue
+		}
+		key := strings.Trim(strings.TrimSpace(piece[:idx]), "\"'`")
+		if key == "" {
+			continue
+		}
+		result[key] = parseLFMContentValue(piece[idx+1:])
+	}
+	return result
+}
+
+func parseLFMContentValue(raw string) any {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return ""
+	}
+	v = strings.ReplaceAll(v, `<|"|>`, `"`)
+	if strings.HasPrefix(v, "\"") && strings.HasSuffix(v, "\"") {
+		if unquoted, err := strconv.Unquote(v); err == nil {
+			return unquoted
+		}
+	}
+	if strings.HasPrefix(v, "'") && strings.HasSuffix(v, "'") && len(v) >= 2 {
+		return strings.ReplaceAll(v[1:len(v)-1], `\'`, `'`)
+	}
+	return parseGemmaValue(v)
+}
+
+func stripLFMContentToolCalls(text string) string {
+	for {
+		start := strings.Index(text, lfmToolCallStart)
+		if start == -1 {
+			return text
+		}
+		bodyStart := start + len(lfmToolCallStart)
+		relEnd := strings.Index(text[bodyStart:], lfmToolCallEnd)
+		if relEnd == -1 {
+			return strings.TrimSpace(text[:start])
+		}
+		end := bodyStart + relEnd + len(lfmToolCallEnd)
+		text = strings.TrimSpace(text[:start] + text[end:])
+	}
+}
+
+func splitLFMContentTopLevel(input string, sep byte) []string {
+	parts := make([]string, 0)
+	start := 0
+	parenDepth := 0
+	braceDepth := 0
+	bracketDepth := 0
+	inString := false
+	var quote byte
+	for i := 0; i < len(input); i++ {
+		ch := input[i]
+		if inString {
+			if ch == '\\' {
+				i++
+				continue
+			}
+			if ch == quote {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '\'', '"':
+			inString = true
+			quote = ch
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case '{':
+			braceDepth++
+		case '}':
+			if braceDepth > 0 {
+				braceDepth--
+			}
+		case '[':
+			bracketDepth++
+		case ']':
+			if bracketDepth > 0 {
+				bracketDepth--
+			}
+		case sep:
+			if parenDepth == 0 && braceDepth == 0 && bracketDepth == 0 {
+				parts = append(parts, input[start:i])
+				start = i + 1
+			}
+		}
+	}
+	if start <= len(input) {
+		parts = append(parts, input[start:])
+	}
+	return parts
+}
+
+func indexLFMContentTopLevelEqual(input string) int {
+	parenDepth := 0
+	braceDepth := 0
+	bracketDepth := 0
+	inString := false
+	var quote byte
+	for i := 0; i < len(input); i++ {
+		ch := input[i]
+		if inString {
+			if ch == '\\' {
+				i++
+				continue
+			}
+			if ch == quote {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '\'', '"':
+			inString = true
+			quote = ch
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case '{':
+			braceDepth++
+		case '}':
+			if braceDepth > 0 {
+				braceDepth--
+			}
+		case '[':
+			bracketDepth++
+		case ']':
+			if bracketDepth > 0 {
+				bracketDepth--
+			}
+		case '=':
+			if parenDepth == 0 && braceDepth == 0 && bracketDepth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func findMatchingLFMDelimiter(text string, pos int, open, close byte) int {
+	depth := 0
+	inString := false
+	var quote byte
+	for i := pos; i < len(text); i++ {
+		ch := text[i]
+		if inString {
+			if ch == '\\' {
+				i++
+				continue
+			}
+			if ch == quote {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '\'', '"':
+			inString = true
+			quote = ch
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return pos
 }
 
 func extractGemmaContentToolCalls(text string) []ToolCall {
@@ -421,6 +739,115 @@ func stripGemmaContentToolCalls(text string) string {
 
 		if suffix := strings.Index(text[end:], "<tool_call|>"); suffix >= 0 && suffix < 20 {
 			end = end + suffix + len("<tool_call|>")
+		}
+		text = strings.TrimSpace(text[:start] + text[end:])
+	}
+}
+
+// extractMiniCPMContentToolCalls parses MiniCPM's native XML tool call format:
+//
+//	<name>tool_name</name>
+//	{"arg1": "val1", "arg2": "val2"}
+//
+// This format is used by fine-tuned MiniCPM models (e.g. OdooClaw Light V7 v3).
+func extractMiniCPMContentToolCalls(text string) []ToolCall {
+	const openTag = "<name>"
+	const closeTag = "</name>"
+	searchFrom := 0
+	callIndex := 1
+	result := make([]ToolCall, 0)
+
+	for {
+		rel := strings.Index(text[searchFrom:], openTag)
+		if rel == -1 {
+			break
+		}
+		start := searchFrom + rel
+		nameStart := start + len(openTag)
+		nameEnd := strings.Index(text[nameStart:], closeTag)
+		if nameEnd == -1 {
+			break
+		}
+		nameEnd = nameStart + nameEnd
+
+		name := strings.TrimSpace(text[nameStart:nameEnd])
+		if name == "" {
+			searchFrom = nameEnd + len(closeTag)
+			continue
+		}
+
+		// Find JSON args after </name>
+		argSearchFrom := nameEnd + len(closeTag)
+		argStart := argSearchFrom
+		for argStart < len(text) && (text[argStart] == ' ' || text[argStart] == '\t' || text[argStart] == '\n' || text[argStart] == '\r') {
+			argStart++
+		}
+
+		argsMap := map[string]any{}
+		argsJSON := "{}"
+		nextFrom := argSearchFrom
+
+		if argStart < len(text) && text[argStart] == '{' {
+			argEnd := findMatchingBrace(text, argStart)
+			if argEnd > argStart {
+				rawJSON := text[argStart:argEnd]
+				if err := json.Unmarshal([]byte(rawJSON), &argsMap); err == nil {
+					if encoded, err := json.Marshal(argsMap); err == nil {
+						argsJSON = string(encoded)
+					}
+				}
+				nextFrom = argEnd
+			}
+		}
+
+		result = append(result, ToolCall{
+			ID:        "minicpm_call_" + strconv.Itoa(callIndex),
+			Type:      "function",
+			Name:      name,
+			Arguments: argsMap,
+			Function: &FunctionCall{
+				Name:      name,
+				Arguments: argsJSON,
+			},
+		})
+
+		callIndex++
+		searchFrom = nextFrom
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// stripMiniCPMContentToolCalls removes MiniCPM XML tool call markup from text,
+// leaving only the natural language content.
+func stripMiniCPMContentToolCalls(text string) string {
+	const openTag = "<name>"
+	const closeTag = "</name>"
+	for {
+		start := strings.Index(text, openTag)
+		if start == -1 {
+			return text
+		}
+		nameStart := start + len(openTag)
+		nameEnd := strings.Index(text[nameStart:], closeTag)
+		if nameEnd == -1 {
+			return text
+		}
+		nameEnd = nameStart + nameEnd
+		argSearchFrom := nameEnd + len(closeTag)
+		argStart := argSearchFrom
+		for argStart < len(text) && (text[argStart] == ' ' || text[argStart] == '\t' || text[argStart] == '\n' || text[argStart] == '\r') {
+			argStart++
+		}
+		end := argSearchFrom
+		if argStart < len(text) && text[argStart] == '{' {
+			argEnd := findMatchingBrace(text, argStart)
+			if argEnd > argStart {
+				end = argEnd
+			}
 		}
 		text = strings.TrimSpace(text[:start] + text[end:])
 	}
@@ -771,4 +1198,185 @@ func asFloat(v any) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// extractQwenContentToolCalls parses Qwen2.5 native tool call format embedded in
+// the response content:
+//
+//	<tool_call>
+//	{"name": "mcp_odoo-mcp_odoo_find_partner", "arguments": "{\"name\": \"ACME\"}"}
+//	</tool_call>
+//
+// It also handles the plain JSON form without XML tags:
+//
+//	{"name": "mcp_odoo-mcp_odoo_find_partner", "arguments": "{\"name\": \"ACME\"}"}
+func extractQwenContentToolCalls(text string) []ToolCall {
+	result := make([]ToolCall, 0)
+	callIndex := 1
+
+	// Pass 1: explicit <tool_call> blocks
+	searchFrom := 0
+	for {
+		relStart := strings.Index(text[searchFrom:], "<tool_call>")
+		if relStart == -1 {
+			break
+		}
+		start := searchFrom + relStart
+		bodyStart := start + len("<tool_call>")
+		relEnd := strings.Index(text[bodyStart:], "</tool_call>")
+		if relEnd == -1 {
+			break
+		}
+		end := bodyStart + relEnd
+		body := strings.TrimSpace(text[bodyStart:end])
+		if tc := parseQwenToolCallJSON(body, callIndex); tc != nil {
+			result = append(result, *tc)
+			callIndex++
+		}
+		searchFrom = end + len("</tool_call>")
+	}
+
+	// Pass 2: bare JSON objects with mcp_ tool names
+	if len(result) == 0 {
+		// Find {"name": "mcp_...", ...} and parse with balanced braces so
+		// nested } inside "arguments" don't truncate the JSON.
+		re := regexp.MustCompile(`\{"name":\s*"(mcp_[^"]+)"`)
+		for _, loc := range re.FindAllStringIndex(text, -1) {
+			start := loc[0]
+			end := findBalancedJSON(text, start)
+			if end <= start {
+				continue
+			}
+			if tc := parseQwenToolCallJSON(text[start:end], callIndex); tc != nil {
+				result = append(result, *tc)
+				callIndex++
+			}
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func parseQwenToolCallJSON(body string, index int) *ToolCall {
+	var obj struct {
+		Name      string          `json:"name"`
+		ID        string          `json:"id"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal([]byte(body), &obj); err != nil {
+		return nil
+	}
+	name := obj.Name
+	if name == "" {
+		name = obj.ID
+	}
+	if name == "" {
+		return nil
+	}
+	argsMap := map[string]any{}
+	argsJSON := "{}"
+	if len(obj.Arguments) > 0 && string(obj.Arguments) != "null" {
+		argsJSON = string(obj.Arguments)
+		// arguments puede ser string JSON ("{\"name\":...}") o objeto directo ({"name":...})
+		var raw string
+		if err := json.Unmarshal(obj.Arguments, &raw); err == nil {
+			// Era string — parsear el contenido
+			if err2 := json.Unmarshal([]byte(raw), &argsMap); err2 == nil {
+				argsJSON = raw
+			}
+		} else {
+			// Era objeto directo
+			if err2 := json.Unmarshal(obj.Arguments, &argsMap); err2 == nil {
+				argsJSON = string(obj.Arguments)
+			}
+		}
+	}
+	return &ToolCall{
+		ID:        "qwen_call_" + strconv.Itoa(index),
+		Type:      "function",
+		Name:      name,
+		Arguments: argsMap,
+		Function: &FunctionCall{
+			Name:      name,
+			Arguments: argsJSON,
+		},
+	}
+}
+
+// findBalancedJSON returns the index just past the closing brace of the JSON
+// object starting at start (which must point at '{'). Handles strings with
+// escaped quotes and nested braces so arguments containing JSON don't break.
+func findBalancedJSON(text string, start int) int {
+	depth := 0
+	inString := false
+	escaped := false
+	for i := start; i < len(text); i++ {
+		ch := text[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
+}
+
+// stripQwenContentToolCalls removes Qwen tool call markup from text,
+// leaving only the natural language content.
+func stripQwenContentToolCalls(text string) string {
+	re := regexp.MustCompile(`<tool_call>.*?</tool_call>`)
+	cleaned := re.ReplaceAllString(text, "")
+	// Remove leftover bare JSON tool objects
+	re2 := regexp.MustCompile(`\{"name":\s*"(mcp_[^"]+)"[^}]*\}`)
+	cleaned = re2.ReplaceAllString(cleaned, "")
+	return strings.TrimSpace(cleaned)
+}
+
+// injectToolsAsText appends the available tools as plain text to the last
+// system message. Small fine-tuned local models (Qwen 0.5B) were trained with
+// tools listed as "HERRAMIENTAS DISPONIBLES:" in the system prompt and
+// hallucinate when tools arrive as OpenAI JSON function schemas.
+func injectToolsAsText(messages []Message, tools []ToolDefinition) []Message {
+	var sb strings.Builder
+	sb.WriteString("\n\nTienes acceso a las siguientes herramientas. Cuando necesites ejecutar una operación, usa el formato <tool_call> con el nombre exacto de la herramienta y sus argumentos.\n\nHERRAMIENTAS DISPONIBLES:\n")
+	for _, t := range tools {
+		sb.WriteString("- " + t.Function.Name + "\n")
+	}
+	toolBlock := sb.String()
+
+	out := make([]Message, 0, len(messages))
+	for i, m := range messages {
+		if m.Role == "system" {
+			m.Content = m.Content + toolBlock
+		}
+		out = append(out, m)
+		_ = i
+	}
+	if len(out) == 0 {
+		out = append(out, Message{Role: "system", Content: toolBlock})
+	}
+	return out
 }

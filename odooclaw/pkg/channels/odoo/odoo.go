@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"sync"
+
 	"github.com/nicolasramos/odooclaw/pkg/bus"
 	"github.com/nicolasramos/odooclaw/pkg/channels"
 	"github.com/nicolasramos/odooclaw/pkg/config"
@@ -21,29 +23,41 @@ import (
 
 type OdooChannel struct {
 	*channels.BaseChannel
-	config config.OdooConfig
-	client *http.Client
+	config        config.OdooConfig
+	client        *http.Client
+	pendingTokens sync.Map // replyChatID -> replyToken (string), single-use
+}
+
+// ChatterMessage represents a single message from the Odoo record chatter,
+// sent in the webhook payload as context for the LLM.
+type ChatterMessage struct {
+	Date   string `json:"date"`
+	Author string `json:"author"`
+	Body   string `json:"body"`
 }
 
 type OdooWebhookPayload struct {
-	MessageID         int    `json:"message_id"`
-	Model             string `json:"model"`
-	ResID             int    `json:"res_id"`
-	ReplyModel        string `json:"reply_model"`
-	ReplyResID        int    `json:"reply_res_id"`
-	AuthorID          int    `json:"author_id"`
-	AuthorUserID      int    `json:"author_user_id"`
-	AuthorName        string `json:"author_name"`
-	Body              string `json:"body"`
-	IsDM              bool   `json:"is_dm"`
-	CompanyID         int    `json:"company_id"`
-	AllowedCompanyIDs []int  `json:"allowed_company_ids"`
+	MessageID         int              `json:"message_id"`
+	Model             string           `json:"model"`
+	ResID             int              `json:"res_id"`
+	ReplyModel        string           `json:"reply_model"`
+	ReplyResID        int              `json:"reply_res_id"`
+	AuthorID          int              `json:"author_id"`
+	AuthorUserID      int              `json:"author_user_id"`
+	AuthorName        string           `json:"author_name"`
+	Body              string           `json:"body"`
+	IsDM              bool             `json:"is_dm"`
+	CompanyID         int              `json:"company_id"`
+	AllowedCompanyIDs []int            `json:"allowed_company_ids"`
+	ReplyToken        string           `json:"reply_token,omitempty"`
+	ChatterContext    []ChatterMessage `json:"chatter_context,omitempty"`
 }
 
 type OdooReplyPayload struct {
-	Model   string `json:"model"`
-	ResID   int    `json:"res_id"`
-	Message string `json:"message"`
+	Model      string `json:"model"`
+	ResID      int    `json:"res_id"`
+	Message    string `json:"message"`
+	ReplyToken string `json:"reply_token,omitempty"`
 }
 
 func NewOdooChannel(cfg config.OdooConfig, messageBus *bus.MessageBus) (*OdooChannel, error) {
@@ -96,6 +110,15 @@ func (c *OdooChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		Message: utils.RemoveReasoning(msg.Content),
 	}
 
+	// Include reply token if one was registered for this chatID (single-use)
+	if token, ok := c.pendingTokens.LoadAndDelete(msg.ChatID); ok {
+		reply.ReplyToken = token.(string)
+	} else {
+		// No token — Odoo would reject this reply anyway, skip LLM cost
+		slog.Warn("No reply token for chatID, skipping send", "chatID", msg.ChatID)
+		return nil
+	}
+
 	jsonData, err := json.Marshal(reply)
 	if err != nil {
 		return err
@@ -107,6 +130,10 @@ func (c *OdooChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+
+	if token := os.Getenv("ODOOCLAW_REPLY_TOKEN"); token != "" {
+		req.Header.Set("X-OdooClaw-Token", token)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -191,7 +218,8 @@ func (c *OdooChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		replyResID = payload.ResID
 	}
 	replyChatID := fmt.Sprintf("%s_%d", replyModel, replyResID)
-	hasPrivateReplyTarget := !payload.IsDM && payload.ReplyModel != "" && payload.ReplyResID > 0
+	hasPrivateReplyTarget := !payload.IsDM && payload.ReplyModel != "" && payload.ReplyResID > 0 &&
+		(payload.ReplyModel != payload.Model || payload.ReplyResID != payload.ResID)
 
 	senderNumericID := payload.AuthorUserID
 	if senderNumericID <= 0 {
@@ -230,6 +258,19 @@ func (c *OdooChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
+	// Prepend chatter context: messages posted since last OdooClaw reply,
+	// in chronological order. This gives the LLM visibility into what
+	// happened between its last intervention and the current message.
+	if len(payload.ChatterContext) > 0 {
+		var sb strings.Builder
+		sb.WriteString("[Chatter history since last OdooClaw reply]\n")
+		for _, msg := range payload.ChatterContext {
+			sb.WriteString(fmt.Sprintf("[%s] %s: %s\n", msg.Date, msg.Author, msg.Body))
+		}
+		sb.WriteString("[End of chatter history]\n\n")
+		content = sb.String() + content
+	}
+
 	// Odoo filters mentions server-side before sending to the webhook.
 	var mediaPaths []string
 	metadata := map[string]string{
@@ -246,6 +287,14 @@ func (c *OdooChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			metadata["allowed_company_ids"] = string(b)
 		}
 	}
+
+	// Reject webhook if no reply token — Odoo did not generate one
+	if payload.ReplyToken == "" {
+		slog.Warn("Rejected Odoo webhook: missing reply_token", "model", payload.Model, "res_id", payload.ResID)
+		http.Error(w, "Missing reply_token", http.StatusBadRequest)
+		return
+	}
+	c.pendingTokens.Store(replyChatID, payload.ReplyToken)
 
 	c.HandleMessage(r.Context(), peer, strconv.Itoa(payload.MessageID), senderID, replyChatID, content, mediaPaths, metadata, sender)
 

@@ -1,46 +1,32 @@
-# Ignore all src directories except private and files with a dot
-/odoo/auto
-/odoo/custom/src/*/
-!/odoo/custom/src/private/
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
-# Ignore docker-compose.yml and overrides by default, to allow easy defaults per clone
-/docker-compose.yml
-/docker-compose.override.yml
+# Virtual environments
+.venv*/
+venv/
 
-# Compiled formats, cache, temporary files, git garbage
-**.~
-**.mo
-**.py[co]
-**.egg-info
-**.orig
+# Odoo/local runtime
+*.log
+.env
+.env.*
 
-# User-specific or editor-specific development files and settings
-.vscode/*
-!/.vscode/*.jinja
-!/.vscode/extensions.json
-!/.vscode/launch.json
-!/.vscode/settings.json
-!/.vscode/tasks.json
-/odoo/custom/src/private/.vscode/*
-/.venv
-/doodba.*.code-workspace
-/src
-.idea/*
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
 
-# Project-specific docker configurations
-/.docker/
+# Browser extension build artifacts
+browser_extension/dist/*.zip
+*.zip
 
-# Local credentials and secrets
-**/.env
-**/.env.*
-**/*credentials*.json
-**/*token*
-!/odooclaw/pkg/auth/token.go
-**/*.pem
-**/*.key
-
-# OdooClaw local runtime config
-/odooclaw/config/config.json
-
-# OdooClaw local build artifacts
-/odooclaw/build/
+# Internal planning docs
+docs/slices/
+.atl/
