@@ -1157,8 +1157,22 @@ func (al *AgentLoop) runLLMIteration(
 			}
 			// Small local models (llama.cpp/ollama) are fine-tuned with tools
 			// listed as plain text in the system prompt. Inject them there
-			// instead of sending OpenAI JSON function schemas.
+			// instead of sending OpenAI JSON function schemas. A per-model
+			// config override (prompt_tools_in_text) wins over the heuristic:
+			// native-tool-calling fine-tunes (v26-native) need the native
+			// "tools" array to reach 100% exact-match tool calling.
+			useTextInjection := isLocalSmallModel(agent.Model)
+			if agent.PromptToolsInText != nil {
+				useTextInjection = *agent.PromptToolsInText
+			}
+			// NRA-413: Force temperature=0.0 for local small models to ensure
+			// deterministic tool calling. Fine-tuned 0.5B/1.5B models degrade
+			// quickly with non-zero temperature — even 0.1 introduces enough
+			// stochasticity to produce malformed JSON or wrong tool names.
 			if isLocalSmallModel(agent.Model) {
+				opts["temperature"] = 0.0
+			}
+			if useTextInjection {
 				opts["prompt_tools_in_text"] = true
 			}
 			return agent.Provider.Chat(ctx, messages, providerToolDefs, agent.Model, opts)
@@ -1899,24 +1913,35 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 	}
 
 	queryLower := strings.ToLower(query)
+	// Normalize accents: "recepción" → "recepcion", "albarán" → "albaran", etc.
+	accentReplacer := strings.NewReplacer(
+		"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u", "ñ", "n",
+		"Á", "a", "É", "e", "Í", "i", "Ó", "o", "Ú", "u", "Ü", "u", "Ñ", "n",
+	)
+	queryLower = accentReplacer.Replace(queryLower)
 	// Domain keywords map to tool name fragments (English + Spanish).
 	domainKeywords := map[string][]string{
 		"partner":     {"partner", "cliente", "contact", "empresa", "acme"},
-		"product":     {"product", "producto", "stock", "almacen", "inventario"},
+		"product":     {"product", "producto", "productos"},
 		"sale":        {"sale", "venta", "orden", "pedido", "so/", "order"},
 		"invoice":     {"invoice", "factura", "facturas", "pago", "pending", "pendiente"},
 		"task":        {"task", "tarea", "proyecto", "project"},
 		"lead":        {"lead", "crm", "oportunidad"},
 		"reconcile":   {"reconcile", "conciliar", "banco", "bank"},
 		"tax":         {"tax", "impuesto", "iva"},
-		"delivery":    {"delivery", "albaran", "receipt", "recepcion"},
-		"inventory":   {"inventory", "ajuste", "adjustment", "valuation"},
+		"delivery":    {"delivery", "entrega", "entregas"},
+		"inventory":   {"inventory", "ajuste", "adjustment", "valuation", "inventario", "almacen", "stock"},
 		"activity":    {"activity", "actividad", "reunion", "meeting"},
 		"chatter":     {"chatter", "mensaje", "message", "nota", "note"},
 		"purchase":    {"purchase", "compra", "po/"},
-		"account":     {"account", "cuenta", "contab"},
+		"account":     {"account", "cuenta", "contab", "saldo"},
+		"aging":       {"aging", "antiguedad", "ar_ap", "ar/ap"},
 		"migration":   {"migration", "migra"},
 		"report":      {"report", "informe"},
+		"expense":     {"expense", "gasto", "gastos"},
+		"timesheet":   {"timesheet", "hoja de tiempos", "tiempos"},
+		"attendance":  {"attendance", "fichar", "asistencia"},
+		"shipment":    {"shipment", "envio", "envíos"},
 	}
 
 	score := func(name string) int {
@@ -1937,6 +1962,34 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 				if strings.Contains(queryLower, kw) && strings.Contains(lower, domain) {
 					s += 3
 				}
+			}
+		}
+		// Direct query-term → tool-fragment pairs (Spanish ↔ English tool names).
+		// Fixes: "saldo"→aging/balance, "albaran"/"recepcion"→receipt, "ajuste"→adjustment,
+		// "entrega(s)"→delivery, "gasto(s)"→expense, "tiempos"→timesheet, "fichar"→attendance.
+		queryToolPairs := [][2]string{
+			{"saldo", "aging"}, {"saldo", "balance"}, {"saldo", "ar_ap"},
+			{"albaran", "receipt"}, {"recepcion", "receipt"}, {"receipt", "receipt"},
+			{"entrega", "delivery"}, {"entregas", "delivery"},
+			{"gasto", "expense"}, {"gastos", "expense"},
+			{"tiempos", "timesheet"}, {"fichar", "attendance"}, {"asistencia", "attendance"},
+			{"envio", "shipment"}, {"envios", "shipment"},
+			{"ajuste", "adjustment"}, {"inventario", "inventory"}, {"stock", "stock"},
+			{"producto", "product"}, {"productos", "product"},
+			{"factura", "invoice"}, {"facturas", "invoice"}, {"pendientes", "pending"},
+			{"cliente", "partner"}, {"clientes", "partner"}, {"empresa", "partner"},
+			{"tarea", "task"}, {"tareas", "task"}, {"proyecto", "project"},
+			{"venta", "sale"}, {"pedido", "order"}, {"orden", "order"}, {"ventas", "sale"},
+			{"cuenta", "account"}, {"contab", "account"}, {"banco", "bank"}, {"bancar", "bank"},
+			{"compra", "purchase"}, {"compras", "purchase"},
+			{"crm", "lead"}, {"oportunidad", "lead"},
+			{"impuesto", "tax"}, {"iva", "tax"}, {"informe", "report"},
+			{"mensaje", "chatter"}, {"nota", "note"}, {"reunion", "activity"}, {"actividad", "activity"},
+			{"reconcili", "reconcile"}, {"conciliar", "reconcile"},
+		}
+		for _, pair := range queryToolPairs {
+			if strings.Contains(queryLower, pair[0]) && strings.Contains(lower, pair[1]) {
+				s += 3
 			}
 		}
 		// Token overlap bonus
