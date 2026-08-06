@@ -376,6 +376,10 @@ def odoo_search(
     limit: int = DEFAULT_SEARCH_LIMIT,
     sender_id: int | None = None,
 ) -> list:
+    """Busca IDs de registros de un modelo Odoo que cumplen el domain.
+    Usa esta herramienta para CONTAR registros (cuántos clientes/facturas/
+    pedidos hay): busca con domain [] o el mínimo y cuenta los IDs devueltos.
+    """
     with measure_time("odoo_search"):
         client = get_odoo_client()
         return records.odoo_search(
@@ -464,6 +468,10 @@ def odoo_find_partner(
     email: str | None = None,
     sender_id: int | None = None,
 ) -> int:
+    """Busca un cliente/partner en Odoo por nombre, VAT o email y devuelve su ID.
+    Usa esta herramienta cuando el usuario pregunte por un cliente concreto
+    (busca/encuentra/localiza/dime el cliente X). Ejemplo: "Busca el cliente Acme".
+    """
     with measure_time("odoo_find_partner"):
         client = get_odoo_client()
         return partners.odoo_find_partner(
@@ -480,6 +488,9 @@ def odoo_get_partner_summary(
     partner_id: int,
     sender_id: int | None = None,
 ) -> dict:
+    """Devuelve el resumen de UN partner concreto a partir de su partner_id.
+    NO es para buscar clientes ni para contar clientes: requiere saber el ID.
+    """
     with measure_time("odoo_get_partner_summary"):
         client = get_odoo_client()
         return partners.odoo_get_partner_summary(
