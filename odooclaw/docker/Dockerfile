@@ -75,6 +75,9 @@ RUN chmod +x /usr/local/bin/whisper-stt-mcp.py
 COPY workspace/skills/ocr-invoice/server.py /usr/local/bin/ocr-invoice-mcp.py
 RUN chmod +x /usr/local/bin/ocr-invoice-mcp.py
 
+# poppler-utils: pdftoppm required by ocr-invoice MCP (PDF -> images for vision OCR)
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
+
 # Copy RLM-utils MCP server script (needs shebang for exec format)
 COPY workspace/skills/rlm-utils/server.py /usr/local/bin/rlm-utils-mcp.py
 RUN printf '#!/usr/bin/env python3\n' | cat - /usr/local/bin/rlm-utils-mcp.py > /tmp/rlm-utils-mcp.py && \
