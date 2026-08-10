@@ -74,21 +74,37 @@ def test_new_business_models_allowed():
     validate_model_access("mail.channel")
     validate_model_access("mail.followers")
     validate_model_access("sale.order.tag")
+    # New models from NRA-464
+    validate_model_access("event.event")
+    validate_model_access("event.event.type")
+    validate_model_access("event.registration")
+    validate_model_access("event.ticket")
+    validate_model_access("survey.survey")
+    validate_model_access("survey.question")
+    validate_model_access("survey.user_input")
+    validate_model_access("blog.post")
+    validate_model_access("blog.blog")
+    validate_model_access("blog.tag")
 
 
 def test_blacklist_blocks_sensitive_models():
     """Modelos técnicos/de seguridad deben estar bloqueados."""
     # These should be blocked even if someone adds them to escape hatch
+    # (NRA-466: 20 critical models added to fill security gap)
     blocked_models = [
+        # Model metadata
         "ir.model",
         "ir.model.fields",
         "ir.model.data",
         "ir.model.relation",
         "ir.model.access",
+        # Views and menus
         "ir.ui.view",
         "ir.ui.menu",
+        # Module management
         "ir.module.module",
         "ir.module.category",
+        # Configuration (could expose credentials)
         "ir.config_parameter",
         "ir.actions.act_window",
         "ir.actions.server",
@@ -96,6 +112,30 @@ def test_blacklist_blocks_sensitive_models():
         "res.groups",
         "res.lang",
         "base.ir.actions.act_window",
+        # Credential / token / authentication models
+        "res.users.apikeys",
+        "res.users.apikeys.show",
+        "res.users.log",
+        "res.users.deletion",
+        "res.device.log",
+        "auth_totp.device",
+        "auth.oauth.provider",
+        "auth.passkey.key",
+        "certificate.key",
+        # Cron / automation / logging — arbitrary execution risk
+        "ir.cron",
+        "ir.cron.trigger",
+        "ir.cron.progress",
+        "ir.actions.server.history",
+        "base.automation",
+        "ir.rule",
+        "ir.mail_server",
+        "fetchmail.server",
+        "ir.logging",
+        # Payment tokens — financial data
+        "payment.token",
+        # Privacy — GDPR-sensitive
+        "privacy.log",
     ]
 
     for model in blocked_models:
@@ -182,11 +222,16 @@ def test_blacklist_wins_over_config_parameter():
 
 
 def test_denied_models_constant_defined():
-    """DEFAULT_DENIED_MODELS debe existir y contener modelos técnicos."""
+    """DEFAULT_DENIED_MODELS debe existir y contener modelos técnicos + críticos."""
     assert hasattr(DEFAULT_DENIED_MODELS, "__len__")
+    # Original baseline
     assert "ir.model" in DEFAULT_DENIED_MODELS
     assert "res.users" in DEFAULT_DENIED_MODELS
     assert "ir.config_parameter" in DEFAULT_DENIED_MODELS
+    # (NRA-466: new critical models)
+    assert "payment.token" in DEFAULT_DENIED_MODELS
+    assert "auth_totp.device" in DEFAULT_DENIED_MODELS
+    assert "base.automation" in DEFAULT_DENIED_MODELS
 
 
 def test_allowed_models_expanded():
@@ -200,7 +245,237 @@ def test_allowed_models_expanded():
         "resource.calendar.leaves",
         "mailing.list",
         "mailing.contact",
+        # NRA-464: new core CE models
+        "event.event",
+        "event.event.type",
+        "event.registration",
+        "event.ticket",
+        "survey.survey",
+        "survey.question",
+        "survey.user_input",
+        "blog.post",
+        "blog.blog",
+        "blog.tag",
     ]
 
     for model in new_models:
         assert model in DEFAULT_ALLOWED_MODELS, f"{model} should be in DEFAULT_ALLOWED_MODELS"
+
+
+# ============================================
+# Tests for dynamic allowlist (NRA-463)
+# ============================================
+
+def test_dynamic_allowlist_from_ir_model():
+    """La allowlist dinámica debe consultar ir.model y excluir DENIED."""
+    from odoo_mcp.security import policy
+    policy.reset_allowed_models_cache()
+
+    mock_client = MagicMock()
+    mock_client.call_kw.return_value = [
+        {"model": "res.partner"},
+        {"model": "sale.order"},
+        {"model": "custom.module.model"},
+        {"model": "ir.model"},  # debe ser excluido por blacklist
+    ]
+
+    allowed = policy.get_allowed_models(mock_client)
+
+    # Modelos de ir.model deben estar permitidos
+    assert "res.partner" in allowed
+    assert "sale.order" in allowed
+    assert "custom.module.model" in allowed
+    # ir.model debe estar bloqueado por blacklist
+    assert "ir.model" not in allowed
+
+
+def test_dynamic_allowlist_excludes_transient_models():
+    """Los modelos transient=True no deben aparecer en la allowlist dinámica."""
+    from odoo_mcp.security import policy
+    policy.reset_allowed_models_cache()
+
+    mock_client = MagicMock()
+    # search_read ya filtra por transient=False, pero verificamos que no se agreguen
+    mock_client.call_kw.return_value = [
+        {"model": "res.partner"},
+        {"model": "test.transient.model"},
+    ]
+
+    allowed = policy.get_allowed_models(mock_client)
+
+    # Ambos deben estar si no están en blacklist
+    assert "res.partner" in allowed
+    assert "test.transient.model" in allowed
+
+
+def test_dynamic_allowlist_fallback_to_static_when_empty():
+    """Si ir.model devuelve vacío, debe fallback a DEFAULT_ALLOWED_MODELS."""
+    from odoo_mcp.security import policy
+    policy.reset_allowed_models_cache()
+
+    mock_client = MagicMock()
+    mock_client.call_kw.return_value = []
+
+    allowed = policy.get_allowed_models(mock_client)
+
+    # Debe fallback a la allowlist estática
+    assert "res.partner" in allowed
+    assert "sale.order" in allowed
+
+
+def test_dynamic_allowlist_fallback_on_client_error():
+    """Si la consulta a ir.model falla, debe fallback a DEFAULT_ALLOWED_MODELS."""
+    from odoo_mcp.security import policy
+    policy.reset_allowed_models_cache()
+
+    mock_client = MagicMock()
+    mock_client.call_kw.side_effect = Exception("Connection lost")
+
+    allowed = policy.get_allowed_models(mock_client)
+
+    # Debe fallback a la allowlist estática
+    assert "res.partner" in allowed
+    assert "sale.order" in allowed
+
+
+def test_instance_denied_models_from_config_parameter():
+    """odooclaw.denied_models debe excluir modelos de la allowlist dinámica."""
+    from odoo_mcp.security import policy
+    policy.reset_allowed_models_cache()
+
+    mock_client = MagicMock()
+
+    def call_kw_side_effect(model, method, args=None, kwargs=None, sender_id=None):
+        if model == "ir.model":
+            return [{"model": "res.partner"}, {"model": "sale.order"}, {"model": "custom.blocked.model"}]
+        if model == "ir.config_parameter" and args and args[0] == "odooclaw.denied_models":
+            return "res.users,custom.blocked.model"
+        return None
+
+    def try_call_kw_side_effect(model, method, args=None, kwargs=None, sender_id=None, default=None):
+        return call_kw_side_effect(model, method, args, kwargs, sender_id)
+
+    mock_client.call_kw.side_effect = call_kw_side_effect
+    mock_client.try_call_kw.side_effect = try_call_kw_side_effect
+
+    allowed = policy.get_allowed_models(mock_client)
+
+    # custom.blocked.model debe estar excluido por odooclaw.denied_models
+    assert "res.partner" in allowed
+    assert "sale.order" in allowed
+    assert "custom.blocked.model" not in allowed
+
+
+def test_instance_denied_models_from_env():
+    """ODOOCLAW_DENIED_MODELS debe excluir modelos de la allowlist dinámica."""
+    from odoo_mcp.security import policy
+    policy.reset_allowed_models_cache()
+
+    with patch.dict(os.environ, {"ODOOCLAW_DENIED_MODELS": "custom.env.blocked,model.two"}):
+        mock_client = MagicMock()
+
+        def call_kw_side_effect(model, method, args=None, kwargs=None, sender_id=None):
+            if model == "ir.model":
+                return [
+                    {"model": "res.partner"},
+                    {"model": "custom.env.blocked"},
+                    {"model": "model.two"},
+                    {"model": "sale.order"},
+                ]
+            return None
+
+        def try_call_kw_side_effect(model, method, args=None, kwargs=None, sender_id=None, default=None):
+            return call_kw_side_effect(model, method, args, kwargs, sender_id)
+
+        mock_client.call_kw.side_effect = call_kw_side_effect
+        mock_client.try_call_kw.side_effect = try_call_kw_side_effect
+
+        allowed = policy.get_allowed_models(mock_client)
+
+        assert "res.partner" in allowed
+        assert "sale.order" in allowed
+        assert "custom.env.blocked" not in allowed
+        assert "model.two" not in allowed
+
+
+def test_dynamic_allowlist_with_escape_hatch():
+    """El escape hatch extra_allowed_models debe sumar modelos a la allowlist dinámica."""
+    from odoo_mcp.security import policy
+    policy.reset_allowed_models_cache()
+
+    mock_client = MagicMock()
+
+    def call_kw_side_effect(model, method, args=None, kwargs=None, sender_id=None):
+        if model == "ir.model":
+            return [{"model": "res.partner"}, {"model": "sale.order"}]
+        if model == "ir.config_parameter" and args and args[0] == "odooclaw.extra_allowed_models":
+            return "extra.custom.model"
+        return None
+
+    def try_call_kw_side_effect(model, method, args=None, kwargs=None, sender_id=None, default=None):
+        return call_kw_side_effect(model, method, args, kwargs, sender_id)
+
+    mock_client.call_kw.side_effect = call_kw_side_effect
+    mock_client.try_call_kw.side_effect = try_call_kw_side_effect
+
+    allowed = policy.get_allowed_models(mock_client)
+
+    assert "res.partner" in allowed
+    assert "sale.order" in allowed
+    assert "extra.custom.model" in allowed
+
+
+def test_blacklist_wins_over_dynamic_allowlist():
+    """DEFAULT_DENIED_MODELS debe bloquear incluso si viene de ir.model."""
+    from odoo_mcp.security import policy
+    policy.reset_allowed_models_cache()
+
+    mock_client = MagicMock()
+    mock_client.call_kw.return_value = [
+        {"model": "ir.model"},
+        {"model": "res.users"},
+        {"model": "res.partner"},
+    ]
+
+    allowed = policy.get_allowed_models(mock_client)
+
+    assert "ir.model" not in allowed
+    assert "res.users" not in allowed
+    assert "res.partner" in allowed
+
+
+def test_denied_model_in_dynamic_allows_fallback_not_escape():
+    """Un modelo en odooclaw.denied_models no debe poder ser escapado por extra_allowed_models."""
+    from odoo_mcp.security import policy
+    policy.reset_allowed_models_cache()
+
+    mock_client = MagicMock()
+
+    def side_effect(model, method, args=None, kwargs=None, sender_id=None):
+        if model == "ir.model":
+            return [{"model": "res.partner"}]
+        if model == "ir.config_parameter":
+            if args and args[0] == "odooclaw.denied_models":
+                return "blocked.model"
+            if args and args[0] == "odooclaw.extra_allowed_models":
+                return "blocked.model"
+        return None
+
+    mock_client.call_kw.side_effect = side_effect
+    mock_client.try_call_kw.side_effect = side_effect
+
+    # Debe bloquear aunque esté en ambos config_parameters
+    with pytest.raises(OdooSecurityError):
+        validate_model_access("blocked.model", mock_client)
+
+
+def test_dynamic_allowlist_no_client_uses_static():
+    """Sin client, debe usar DEFAULT_ALLOWED_MODELS (comportamiento existente)."""
+    from odoo_mcp.security import policy
+    policy.reset_allowed_models_cache()
+
+    allowed = policy.get_allowed_models()
+
+    assert "res.partner" in allowed
+    assert "sale.order" in allowed
+    assert "ir.model" not in allowed
