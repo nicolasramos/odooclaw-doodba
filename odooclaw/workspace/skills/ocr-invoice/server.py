@@ -130,12 +130,23 @@ class OdooOCRSkill:
             }
 
     def _download_attachment(self, attachment_id: int):
-        res = self._odoo_call(
-            "ir.attachment",
-            "read",
-            [[attachment_id]],
-            {"fields": ["id", "name", "mimetype", "datas"]},
-        )
+        # IMPORTANTE: la lectura del attachment debe hacerse como ADMIN, no como
+        # el sender del mensaje. Con sender_id el MCP usa /odooclaw/call_kw_as_user
+        # (user_id=sender) y los attachments sueltos (res_model=False, creados por
+        # message_post) NO son visibles para el usuario del chat → "Attachment N
+        # not found" aunque exista. El download es infraestructura, no una accion
+        # del usuario: preservamos sender solo si ya estaba seteado.
+        saved_sender = self.runtime_sender_id
+        self.runtime_sender_id = None
+        try:
+            res = self._odoo_call(
+                "ir.attachment",
+                "read",
+                [[attachment_id]],
+                {"fields": ["id", "name", "mimetype", "datas"]},
+            )
+        finally:
+            self.runtime_sender_id = saved_sender
         if res.get("isError"):
             return res
 
@@ -1047,6 +1058,86 @@ class OdooOCRSkill:
             name_override=name,
         )
 
+    def _call_rapidocr(self, attachment):
+        """Extracción con RapidOCR local (100% CPU): texto + coordenadas +
+        parser posicional + lógica de negocio. No necesita modelo de visión."""
+        try:
+            from rapidocr_extractor import extract_invoice_rapidocr
+        except ImportError:
+            return {
+                "isError": True,
+                "content": "rapidocr_extractor no disponible (pip install rapidocr-onnxruntime)",
+            }
+        pdf_data = attachment.get("data")
+        if not pdf_data:
+            return {"isError": True, "content": "Attachment sin datos binarios"}
+        mime = attachment.get("mimetype", "")
+        if "pdf" not in mime and not attachment.get("name", "").lower().endswith(".pdf"):
+            return {"isError": True, "content": "RapidOCR solo procesa PDFs"}
+        res = extract_invoice_rapidocr(
+            pdf_data,
+            dpi=self.ocr_image_dpi,
+            max_pages=self.ocr_max_pages,
+            known_vendors=None,
+            company_vats=os.environ.get("COMPANY_VATS", "").split(",") if os.environ.get("COMPANY_VATS") else None,
+        )
+        return res
+
+    def _call_pipeline(self, attachment):
+        """4-layer model-agnostic pipeline (vision -> fiscal -> header -> validate).
+
+        Config via env (any OpenAI-compatible endpoint):
+          OCR_PIPELINE_VISION_URL   default http://192.168.1.14:8093/v1 (odooclaw-vision)
+          OCR_PIPELINE_VISION_MODEL default odooclaw-vision
+          OCR_PIPELINE_VISION_KEY   optional
+          OCR_PIPELINE_LLM_URL      default http://192.168.1.23:8000/v1 (LFM2.5-1.2B base)
+          OCR_PIPELINE_LLM_MODEL    default LFM2.5-1.2B-Instruct-MLX-4bit
+          OCR_PIPELINE_LLM_KEY      optional
+        """
+        try:
+            from pipeline import OCRConfig, run_pipeline
+        except ImportError:
+            return {"isError": True, "content": "pipeline.py not available in ocr-invoice workspace"}
+
+        cfg = OCRConfig(
+            vision_base_url=os.environ.get(
+                "OCR_PIPELINE_VISION_URL", "http://192.168.1.14:8093/v1"
+            ),
+            vision_model=os.environ.get("OCR_PIPELINE_VISION_MODEL", "odooclaw-vision"),
+            vision_api_key=os.environ.get("OCR_PIPELINE_VISION_KEY", ""),
+            llm_base_url=os.environ.get(
+                "OCR_PIPELINE_LLM_URL", "http://192.168.1.23:8000/v1"
+            ),
+            llm_model=os.environ.get(
+                "OCR_PIPELINE_LLM_MODEL", "LFM2.5-1.2B-Instruct-MLX-4bit"
+            ),
+            llm_api_key=os.environ.get("OCR_PIPELINE_LLM_KEY", ""),
+        )
+        try:
+            tmp = attachment.get("tmp_path") or attachment.get("path")
+            if not tmp or not os.path.exists(tmp):
+                return {"isError": True, "content": "attachment temp file not available"}
+            data = run_pipeline(tmp, cfg)
+        except Exception as e:  # noqa: BLE001
+            return {"isError": True, "content": f"Pipeline failed: {e}"}
+
+        # Normalize pipeline output to the canonical invoice schema
+        invoice_data = {
+            "vendor_name": (data.get("partner_name") or "").strip(),
+            "vendor_vat": (data.get("vat") or "").strip(),
+            "invoice_number": (data.get("ref") or "").strip(),
+            "invoice_date": (data.get("invoice_date") or "").strip(),
+            "amount_total": data.get("amount_total"),
+            "amount_tax": data.get("amount_tax"),
+            "currency": (data.get("currency") or "EUR").strip(),
+            "lines": data.get("invoice_line_ids") or [],
+            "fiscal_found": data.get("fiscal_found", False),
+            "is_reverse_charge": data.get("is_reverse_charge", False),
+            "validation_ok": data.get("_ok", False),
+            "validation_issues": data.get("_issues", []),
+        }
+        return {"invoice_data": invoice_data, "raw_text": data.get("_raw_text", "")}
+
     def extract_invoice(
         self,
         attachment_id: int,
@@ -1066,20 +1157,41 @@ class OdooOCRSkill:
         extracted = None
         raw_text = None
 
-        ext_res = self._call_external_ocr(attachment)
-        if isinstance(ext_res, dict) and not ext_res.get("isError"):
-            extracted = ext_res
-        else:
-            vision_res = self._call_vision(attachment)
-            if vision_res.get("isError"):
-                if isinstance(ext_res, dict) and ext_res.get("isError"):
-                    return {
-                        "isError": True,
-                        "content": f"External OCR failed: {ext_res.get('content')} | Vision fallback failed: {vision_res.get('content')}",
-                    }
-                return vision_res
-            extracted = vision_res.get("parsed")
-            raw_text = vision_res.get("raw_text")
+        # 0) Motor preferente (si se pide explícitamente): pipeline 4 capas agnóstico
+        ocr_mode = os.environ.get("OCR_MODE", "auto").strip().lower()
+        if ocr_mode == "pipeline":
+            pipe_res = self._call_pipeline(attachment)
+            if isinstance(pipe_res, dict) and not pipe_res.get("isError"):
+                extracted = pipe_res.get("invoice_data") or {}
+                raw_text = pipe_res.get("raw_text")
+            else:
+                return pipe_res
+
+        # 1) Motor preferente: RapidOCR local (100% CPU, extrae líneas y cabecera)
+        if not extracted and ocr_mode in ("rapidocr", "auto"):
+            rapid_res = self._call_rapidocr(attachment)
+            if isinstance(rapid_res, dict) and not rapid_res.get("isError"):
+                extracted = rapid_res.get("invoice_data") or {}
+                raw_text = rapid_res.get("raw_text")
+            elif ocr_mode == "rapidocr":
+                return rapid_res
+
+        # 2) Fallback: OCR externo (si está configurado) y visión VL
+        if not extracted:
+            ext_res = self._call_external_ocr(attachment)
+            if isinstance(ext_res, dict) and not ext_res.get("isError"):
+                extracted = ext_res
+            else:
+                vision_res = self._call_vision(attachment)
+                if vision_res.get("isError"):
+                    if isinstance(ext_res, dict) and ext_res.get("isError"):
+                        return {
+                            "isError": True,
+                            "content": f"External OCR failed: {ext_res.get('content')} | Vision fallback failed: {vision_res.get('content')}",
+                        }
+                    return vision_res
+                extracted = vision_res.get("parsed")
+                raw_text = vision_res.get("raw_text")
 
         invoice_data = self._normalize_invoice(extracted or {})
         return {

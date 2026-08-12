@@ -74,6 +74,9 @@ RUN chmod +x /usr/local/bin/whisper-stt-mcp.py
 # Copy OCR-invoice MCP server script (PDF/document tools)
 COPY workspace/skills/ocr-invoice/server.py /usr/local/bin/ocr-invoice-mcp.py
 RUN chmod +x /usr/local/bin/ocr-invoice-mcp.py
+# 4-layer pipeline engine (OCR_MODE=pipeline): pipeline.py must sit next to the MCP script
+COPY workspace/skills/ocr-invoice/pipeline.py /usr/local/bin/pipeline.py
+RUN chmod +x /usr/local/bin/pipeline.py
 
 # poppler-utils: pdftoppm required by ocr-invoice MCP (PDF -> images for vision OCR)
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
