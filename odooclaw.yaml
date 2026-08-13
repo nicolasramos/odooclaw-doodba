@@ -21,6 +21,9 @@ services:
       - ODOOCLAW_AGENTS_DEFAULTS_MODEL=${ODOOCLAW_AGENTS_DEFAULTS_MODEL:-odooclaw-light-1.2}
       - ODOOCLAW_PROVIDERS_OPENAI_API_KEY=${OPENAI_API_KEY}
       - ODOOCLAW_PROVIDERS_OPENAI_API_BASE=${OPENAI_API_BASE:-https://api.openai.com/v1}
+      - ODOOCLAW_GOOGLE_CLIENT_ID=${ODOOCLAW_GOOGLE_CLIENT_ID}
+      - ODOOCLAW_GOOGLE_CLIENT_SECRET=${ODOOCLAW_GOOGLE_CLIENT_SECRET}
+      - ODOOCLAW_OPENAI_CLIENT_ID=${ODOOCLAW_OPENAI_CLIENT_ID}
       # OCR / PDF document flow (ocr-invoice MCP server): VISION_API_BASE +
       # OPENAI_API_KEY (or OCR_API_BASE) are required for extraction. Set the
       # key in the environment to enable the PDF/document tools end-to-end.
