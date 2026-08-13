@@ -13,6 +13,13 @@ import (
 //   go test ./pkg/agent/ -run TestDebugRetrieval -v
 func TestDebugRetrieval(t *testing.T) {
 	names := []string{
+		// rlm-utils / ocr-invoice / whisper / edge-tts servers (nombres reales)
+		"mcp_ocr-invoice_ocr-create-employee-expense", "mcp_ocr-invoice_ocr-create-mileage-expense",
+		"mcp_ocr-invoice_ocr-create-vendor-bill", "mcp_ocr-invoice_ocr-invoice",
+		"mcp_rlm-utils_rlm-utils-compress", "mcp_rlm-utils_rlm-utils-query",
+		"mcp_whisper-stt_whisper-transcribe", "mcp_whisper-stt_whisper-transcribe-url",
+		"mcp_edge-tts_edge-tts-speak", "mcp_edge-tts_edge-tts-voices",
+		// odoo-mcp
 		"mcp_odoo-mcp_odoo_search", "mcp_odoo-mcp_odoo_read", "mcp_odoo-mcp_odoo_create",
 		"mcp_odoo-mcp_odoo_write", "mcp_odoo-mcp_odoo_invoke_action", "mcp_odoo-mcp_odoo_find_partner",
 		"mcp_odoo-mcp_odoo_get_partner_summary", "mcp_odoo-mcp_odoo_create_activity",

@@ -1,0 +1,58 @@
+# OdooClaw services for Doodba stack (template default)
+services:
+  odooclaw:
+    build:
+      context: ./odooclaw
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    command: ["gateway", "--debug"]
+    env_file:
+      - .docker/odoo.env
+    environment:
+      - ODOO_URL=http://192.168.1.14:18069
+      - ODOO_DB=${ODOO_DB:-devel}
+      - ODOO_USERNAME=${ODOO_USERNAME:-admin}
+      - ODOO_PASSWORD=${ODOO_PASSWORD:-admin}
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - ALL_PROXY=
+      - NO_PROXY=localhost,127.0.0.1,odoo,redis,db
+      - ODOOCLAW_AGENTS_DEFAULTS_PROVIDER=${ODOOCLAW_AGENTS_DEFAULTS_PROVIDER:-openai}
+      - ODOOCLAW_AGENTS_DEFAULTS_MODEL=${ODOOCLAW_AGENTS_DEFAULTS_MODEL:-odooclaw-light-1.2}
+      - ODOOCLAW_PROVIDERS_OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ODOOCLAW_PROVIDERS_OPENAI_API_BASE=${OPENAI_API_BASE:-https://api.openai.com/v1}
+      # OCR / PDF document flow (ocr-invoice MCP server): VISION_API_BASE +
+      # OPENAI_API_KEY (or OCR_API_BASE) are required for extraction. Set the
+      # key in the environment to enable the PDF/document tools end-to-end.
+      - VISION_API_BASE=${VISION_API_BASE:-http://192.168.1.14:8093/v1}
+      - VISION_MODEL=${VISION_MODEL:-odooclaw-vision}
+      - OCR_API_BASE=${OCR_API_BASE}
+      - OCR_TIMEOUT_SECONDS=${OCR_TIMEOUT_SECONDS:-240}
+      - OCR_MAX_PAGES=${OCR_MAX_PAGES:-4}
+      - OCR_IMAGE_DPI=${OCR_IMAGE_DPI:-170}
+      - ODOOCLAW_CHANNELS_ODOO_ENABLED=true
+      - ODOOCLAW_CHANNELS_ODOO_WEBHOOK_HOST=0.0.0.0
+      - ODOOCLAW_CHANNELS_ODOO_WEBHOOK_PORT=18790
+      - ODOOCLAW_CHANNELS_ODOO_WEBHOOK_PATH=/webhook/odoo
+      - ODOOCLAW_REDIS_URL=redis://redis:6379/0
+      - ODOOCLAW_JOB_STORE=odoo
+    ports:
+      - "18790:18790"
+    volumes:
+      - odooclaw_data:/home/odooclaw/.odooclaw
+      - ./odooclaw/config/config.json:/home/odooclaw/.odooclaw/config.json:ro
+    depends_on:
+      - odoo
+      - redis
+    networks:
+      - default
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - default
+
+volumes:
+  odooclaw_data:

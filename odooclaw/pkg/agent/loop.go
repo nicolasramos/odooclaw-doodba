@@ -1371,8 +1371,29 @@ func (al *AgentLoop) runLLMIteration(
 		// Save assistant message with tool calls to session
 		agent.Sessions.AddFullMessage(opts.SessionKey, assistantMsg)
 
+		// Defense against hallucinated tool names: small local models
+		// sometimes emit tool calls seen in recipes/history but NOT in the
+		// offered top-k set. Never execute those — feed back an error so the
+		// model retries with a tool it was actually offered.
+		offeredNames := make(map[string]bool, len(providerToolDefs))
+		offeredList := make([]string, 0, len(providerToolDefs))
+		for _, td := range providerToolDefs {
+			offeredNames[td.Function.Name] = true
+			offeredList = append(offeredList, td.Function.Name)
+		}
+
 		// Execute tool calls
 		for _, tc := range normalizedToolCalls {
+			if !offeredNames[tc.Name] {
+				errMsg := fmt.Sprintf("Tool %q is not available in this turn. Choose one of the available tools: %s", tc.Name, strings.Join(offeredList, ", "))
+				rejectedMsg := providers.Message{Role: "tool", Content: errMsg, ToolCallID: tc.ID}
+				messages = append(messages, rejectedMsg)
+				agent.Sessions.AddFullMessage(opts.SessionKey, rejectedMsg)
+				logger.WarnCF("agent", "Rejected hallucinated tool call (not in offered set)", map[string]any{
+					"tool": tc.Name, "iteration": iteration,
+				})
+				continue
+			}
 			argsJSON, _ := json.Marshal(tc.Arguments)
 			argsPreview := utils.Truncate(string(argsJSON), 200)
 			logger.InfoCF("agent", fmt.Sprintf("Tool call: %s(%s)", tc.Name, argsPreview),
@@ -2694,6 +2715,12 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 			strings.Contains(queryLower, "reclamacion")
 		if !helpdeskIntent &&
 			(strings.Contains(lower, "helpdesk") || strings.Contains(lower, "draft_ticket")) {
+			s -= 1000
+		}
+		// OCR-invoice tools are ONLY for attached-document flows. Without a
+		// document/attachment intent they crowd out real create tools: their
+		// names contain "create" and steal the creation pairs.
+		if !ocrIntent && strings.Contains(lower, "ocr-") {
 			s -= 1000
 		}
 		// Balance/debt queries → AR/AP aging; summaries hallucinate partner_id=0.
