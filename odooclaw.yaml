@@ -41,6 +41,8 @@ services:
     volumes:
       - odooclaw_data:/home/odooclaw/.odooclaw
       - ./odooclaw/config/config.json:/home/odooclaw/.odooclaw/config.json:ro
+      # MCP source from NAS (law: code lives on NAS, no image rebuild needed)
+      - ./odooclaw/workspace/skills/odoo-mcp/src:/opt/odoo-mcp
     depends_on:
       - odoo
       - redis

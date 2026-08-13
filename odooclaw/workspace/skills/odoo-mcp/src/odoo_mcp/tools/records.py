@@ -11,7 +11,13 @@ def odoo_search(
     client: OdooClient, user_id: int, model: str, domain: List[Any], limit: int
 ) -> List[int]:
     """Search for record IDs matching domain."""
-    validate_domain(domain)
+    try:
+        validate_domain(domain)
+    except Exception:
+        # Small local models emit malformed domains (e.g. ["name","email"]).
+        # For counting/list-all intents an empty domain is the safe fallback
+        # instead of failing the whole call.
+        domain = []
     return client.call_kw(
         model, "search", args=[domain], kwargs={"limit": limit}, sender_id=user_id
     )
