@@ -125,7 +125,7 @@ Rules:
 - If a tool returns an ERROR or no confirmation, do NOT say it succeeded: report the error to the user. Never claim an action completed without tool confirmation.
 - When a tool fails, start your reply with: "No se pudo completar: <error message>".
 - For creating/updating a partner ALWAYS use Odoo field names: name, email, phone, vat. NEVER "nombre", "telefono", "correo".
-- Counting records (customers, invoices, orders...): use the search tool from the list with domain=[] on the right model — res.partner for customers, account.move for invoices, sale.order for orders. Count the returned IDs and answer with that exact number.
+- Counting records (customers, invoices, orders...): ALWAYS use the mcp_odoo-mcp_odoo_count tool with domain=[] on the right model — res.partner for customers, account.move for invoices, sale.order for orders. It returns the exact number; report it as-is. NEVER count IDs returned by a search tool.
 - Searching a record by name: use the partner search tool from the list with the name as its parameter. NEVER put a bare name inside a domain. If you must build a domain use [["name","ilike","<name>"]].
 - FORBIDDEN for counting/listing: odoo_get_partner_summary, odoo_find_partner, odoo_get_partner. Those tools are ONLY for ONE partner when the user gives its name, email or vat.
 - Never say "I don't have access to a tool" if the search tool exists: find it in the list and use it.

@@ -2682,6 +2682,13 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 			strings.Contains(queryLower, "cuanto debe") ||
 			strings.Contains(queryLower, "balance")
 		if countIntent {
+			// NRA-556: odoo_count (deterministic search_count) must ALWAYS win for
+			// counting queries. The 1.2B model cannot count ID lists from
+			// odoo_search (picks max ID / hallucinates), so the dedicated tool
+			// gets a decisive boost over every other search/count tool.
+			if strings.Contains(lower, "odoo_count") {
+				s += 30
+			}
 			if strings.Contains(lower, "search_read") || strings.Contains(lower, "search") ||
 				strings.Contains(lower, "count") {
 				s += 12 // counting tools win decisively

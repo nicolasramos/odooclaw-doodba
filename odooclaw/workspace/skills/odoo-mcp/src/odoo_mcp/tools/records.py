@@ -23,6 +23,26 @@ def odoo_search(
     )
 
 
+def odoo_count(
+    client: OdooClient, user_id: int, model: str, domain: List[Any]
+) -> int:
+    """Return the EXACT record count matching domain via search_count.
+
+    The 1.2B fine-tuned model cannot reliably count ID lists returned by
+    odoo_search (it picks the max ID or hallucinates). Counting must always
+    go through this deterministic path: Odoo computes search_count and the
+    model only reads a single integer.
+    """
+    try:
+        validate_domain(domain)
+    except Exception:
+        # Same safe fallback as odoo_search: malformed domains → count all.
+        domain = []
+    return client.call_kw(
+        model, "search_count", args=[domain], sender_id=user_id
+    )
+
+
 def odoo_read(
     client: OdooClient,
     user_id: int,
