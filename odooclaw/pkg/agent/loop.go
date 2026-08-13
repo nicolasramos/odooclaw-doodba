@@ -1384,6 +1384,23 @@ func (al *AgentLoop) runLLMIteration(
 
 		// Execute tool calls
 		for _, tc := range normalizedToolCalls {
+			// The fine-tuned model was trained without the mcp_ prefix and
+			// sometimes emits underscores instead of hyphens (e.g.
+			// mcp_odoo_mcp_odoo_search). Normalize to the exact offered name
+			// before validating.
+			resolved := tc.Name
+			if !offeredNames[resolved] {
+				norm := strings.ReplaceAll(resolved, "_", "-")
+				for _, offered := range offeredList {
+					if strings.ReplaceAll(offered, "_", "-") == norm {
+						resolved = offered
+						break
+					}
+				}
+			}
+			if resolved != tc.Name {
+				tc.Name = resolved
+			}
 			if !offeredNames[tc.Name] {
 				errMsg := fmt.Sprintf("Tool %q is not available in this turn. Choose one of the available tools: %s", tc.Name, strings.Join(offeredList, ", "))
 				rejectedMsg := providers.Message{Role: "tool", Content: errMsg, ToolCallID: tc.ID}
