@@ -2635,6 +2635,14 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 			strings.Contains(queryLower, "cuantas facturas") ||
 			strings.Contains(queryLower, "cuantos pedidos") ||
 			strings.Contains(queryLower, "cuantos productos")
+		// Balance/debt queries ("saldo", "deuda", "cuánto debe") → AR/AP aging.
+		balanceIntent := strings.Contains(queryLower, "saldo") ||
+			strings.Contains(queryLower, "deuda") ||
+			strings.Contains(queryLower, "deben") ||
+			strings.Contains(queryLower, "adeuda") ||
+			strings.Contains(queryLower, "me debe") ||
+			strings.Contains(queryLower, "cuanto debe") ||
+			strings.Contains(queryLower, "balance")
 		if countIntent {
 			if strings.Contains(lower, "search_read") || strings.Contains(lower, "search") ||
 				strings.Contains(lower, "count") {
@@ -2645,6 +2653,57 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 				strings.Contains(lower, "get_sale_order_summary") || strings.Contains(lower, "find_task") ||
 				strings.Contains(lower, "get_task_stats") || strings.Contains(lower, "get_financial") {
 				s -= 1000 // single-record tools must NOT be offered for counting
+			}
+		}
+		// Partner search by name ("busca/encuentra/dame + cliente/contacto"):
+		// find_partner wins; odoo_search/odoo_read must NOT be offered — the
+		// 1.2B model generates malformed domains like ["Acme Corporation"]
+		// instead of [["name","ilike","Acme"]].
+		findNameIntent := !countIntent && !balanceIntent &&
+			(strings.Contains(queryLower, "busca") ||
+				strings.Contains(queryLower, "buscar") ||
+				strings.Contains(queryLower, "encuentra") ||
+				strings.Contains(queryLower, "encontrar") ||
+				strings.Contains(queryLower, "localiza") ||
+				strings.Contains(queryLower, "localizar") ||
+				strings.Contains(queryLower, "dame") ||
+				strings.Contains(queryLower, "muestrame") ||
+				strings.Contains(queryLower, "muestra") ||
+				strings.Contains(queryLower, "quien es")) &&
+			(strings.Contains(queryLower, "cliente") ||
+				strings.Contains(queryLower, "contacto") ||
+				strings.Contains(queryLower, "partner") ||
+				strings.Contains(queryLower, "empresa"))
+		if findNameIntent {
+			if strings.Contains(lower, "find_partner") {
+				s += 8
+			}
+			if strings.Contains(lower, "odoo_search") || strings.Contains(lower, "odoo_read") {
+				s -= 8
+			}
+		}
+		// Helpdesk tools are ONLY for support/ticket intents; the 1.2B model
+		// over-indexes on them for partner/contact/creation queries.
+		helpdeskIntent := strings.Contains(queryLower, "helpdesk") ||
+			strings.Contains(queryLower, "ticket") ||
+			strings.Contains(queryLower, "soporte") ||
+			strings.Contains(queryLower, "incidencia") ||
+			strings.Contains(queryLower, "averia") ||
+			strings.Contains(queryLower, "no funciona") ||
+			strings.Contains(queryLower, "queja") ||
+			strings.Contains(queryLower, "reclamacion")
+		if !helpdeskIntent &&
+			(strings.Contains(lower, "helpdesk") || strings.Contains(lower, "draft_ticket")) {
+			s -= 1000
+		}
+		// Balance/debt queries → AR/AP aging; summaries hallucinate partner_id=0.
+		if balanceIntent {
+			if strings.Contains(lower, "aging") || strings.Contains(lower, "ar_ap") {
+				s += 8
+			}
+			if strings.Contains(lower, "get_partner_summary") || strings.Contains(lower, "get_record_summary") ||
+				strings.Contains(lower, "get_sale_order_summary") || strings.Contains(lower, "get_invoice_summary") {
+				s -= 1000
 			}
 		}
 		return s
