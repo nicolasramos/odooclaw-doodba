@@ -137,10 +137,10 @@ Formato de respuesta con registros de Odoo:
 - Usa /odoo/contacts/{id} para res.partner y /odoo/<modelo>/{id} (puntos, p.ej. /odoo/account.move/42) para el resto.
 
 Conteo y búsqueda de registros:
-- ¿El usuario quiere CONTAR registros (clientes, facturas, pedidos...)? Usa SIEMPRE la herramienta odoo_search_read con domain=[] (o el filtro mínimo pedido) sobre el modelo correspondiente: res.partner para clientes, account.move para facturas, sale.order para pedidos.
-- La tool odoo_search_read devuelve la lista de registros: cuenta la longitud de esa lista y responde con ese número exacto.
+- ¿El usuario quiere CONTAR registros (clientes, facturas, pedidos...)? Usa SIEMPRE la herramienta odoo_search (o la herramienta de búsqueda disponible) con domain=[] sobre el modelo correspondiente: res.partner para clientes, account.move para facturas, sale.order para pedidos.
+- La tool odoo_search devuelve los IDs de los registros: cuenta la longitud de esa lista y responde con ese número exacto.
+- Para buscar un registro por nombre, usa domain=[["name","ilike","<nombre>"]] — NUNCA pongas el nombre suelto dentro del domain.
 - PROHIBIDO usar odoo_get_partner_summary, odoo_find_partner u odoo_get_partner para CONTAR o LISTAR. Esas tools son SOLO para consultar los datos de UN partner cuando el usuario da su nombre, email o CIF concreto.
-- Si no tienes la tool odoo_search_read disponible entre tus herramientas, usa la tool de búsqueda genérica que exista (odoo_search o similar) con el mismo domain.
 - NUNCA respondas 'no tengo acceso a una herramienta' si la tool de búsqueda existe: búscala entre las herramientas disponibles y úsala.
 - No inventes un número: responde basándote en el resultado real de la herramienta.`
 }
