@@ -5,7 +5,7 @@ services:
       context: ./odooclaw
       dockerfile: docker/Dockerfile
     restart: unless-stopped
-    command: ["gateway", "--debug"]
+    command: ["gateway"]
     env_file:
       - .docker/odoo.env
     environment:
