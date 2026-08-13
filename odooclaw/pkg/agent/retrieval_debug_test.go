@@ -21,6 +21,7 @@ func TestDebugRetrieval(t *testing.T) {
 		"mcp_edge-tts_edge-tts-speak", "mcp_edge-tts_edge-tts-voices",
 		// odoo-mcp
 		"mcp_odoo-mcp_odoo_search", "mcp_odoo-mcp_odoo_read", "mcp_odoo-mcp_odoo_create",
+		"mcp_odoo-mcp_odoo_count",
 		"mcp_odoo-mcp_odoo_write", "mcp_odoo-mcp_odoo_invoke_action", "mcp_odoo-mcp_odoo_find_partner",
 		"mcp_odoo-mcp_odoo_get_partner_summary", "mcp_odoo-mcp_odoo_create_activity",
 		"mcp_odoo-mcp_odoo_list_pending_activities", "mcp_odoo-mcp_odoo_mark_activity_done",

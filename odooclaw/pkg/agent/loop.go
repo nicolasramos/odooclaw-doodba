@@ -2693,6 +2693,13 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 				strings.Contains(lower, "count") {
 				s += 12 // counting tools win decisively
 			}
+			// The v8 model was trained with odoo_search for counting and keeps
+			// calling it even when odoo_count is offered (verified E2E: still
+			// picked odoo_search after +30 boost). Push odoo_search OUT of the
+			// top-k for counting so the model has no choice but odoo_count.
+			if strings.Contains(lower, "odoo_search") {
+				s -= 1000
+			}
 			if strings.Contains(lower, "find_partner") || strings.Contains(lower, "find_sale") ||
 				strings.Contains(lower, "get_partner_summary") || strings.Contains(lower, "get_record_summary") ||
 				strings.Contains(lower, "get_sale_order_summary") || strings.Contains(lower, "find_task") ||
