@@ -908,6 +908,34 @@ func (al *AgentLoop) runAgentLoop(
 	// 3. Save user message to session
 	agent.Sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
 
+	// 3b. Deterministic OCR path: if the message carries an attached invoice
+	// marker ("🧾 [Factura/Documento: name (ID: N)]" injected by the
+	// mail_bot_odooclaw addon), call the OCR MCP tool directly with the REAL
+	// attachment id. The small model cannot route this (the ocr-* tools are
+	// not in its training set — it hallucinates attachment ids and loops), so
+	// the gateway decides deterministically, same as addOdooRecordLinks.
+	if attID, ok := findInvoiceAttachment(opts.UserMessage); ok {
+		if hasOCRInvoiceTools(agent) {
+			reply, err := handleInvoiceAttachment(ctx, agent, attID, opts)
+			if err == nil {
+				logger.InfoCF("agent", "OCR deterministic path completed",
+					map[string]any{
+						"attachment_id": attID,
+						"content_len":   len(reply),
+					})
+				// Persist the assistant reply in the session so follow-ups
+				// have context.
+				agent.Sessions.AddMessage(opts.SessionKey, "assistant", reply)
+				return reply, nil
+			}
+			logger.WarnCF("agent", "OCR deterministic path failed, falling back to LLM",
+				map[string]any{
+					"attachment_id": attID,
+					"error":         err.Error(),
+				})
+		}
+	}
+
 	// 4. Multi-model pipeline pre-processing
 	// If the pipeline can handle this request directly (greeting, escalation),
 	// return the response immediately without calling the main LLM.
@@ -1381,6 +1409,15 @@ func (al *AgentLoop) runLLMIteration(
 				asyncCallback,
 			)
 
+			// Recipe memory: on SUCCESSFUL tool execution, store the
+			// resolved query → tool + args pattern for reuse as few-shot.
+			// Only successful executions are saved so the store stays clean.
+			if !toolResult.IsError && agent.ContextBuilder != nil && opts.UserMessage != "" {
+				agent.ContextBuilder.SaveRecipe(opts.UserMessage, tc.Name, string(argsJSON), opts.Channel, opts.ChatID, opts.SenderID)
+				logger.DebugCF("agent", "recipe saved",
+					map[string]any{"tool": tc.Name, "query": opts.UserMessage})
+			}
+
 			// Send ForUser content to user immediately if not Silent
 			if !toolResult.Silent && toolResult.ForUser != "" && opts.SendResponse {
 				al.bus.PublishOutbound(ctx, bus.OutboundMessage{
@@ -1593,22 +1630,138 @@ func formatMessagesForLog(messages []providers.Message) string {
 	return sb.String()
 }
 
+// odooToolModel maps Odoo MCP tool names (as registered in the odoo-mcp
+// server, e.g. "odoo_find_partner") to their underlying Odoo model. Runtime
+// names arrive prefixed ("mcp_odoo-mcp_odoo_find_partner");
+// normalizeToolName strips that prefix before the lookup.
+var odooToolModel = map[string]string{
+	// Partner tools
+	"odoo_find_partner":        "res.partner",
+	"odoo_get_partner_summary": "res.partner",
+	// Invoice / accounting tools
+	"odoo_find_pending_invoices": "account.move",
+	"odoo_get_invoice_summary":   "account.move",
+	"odoo_create_journal_entry":  "account.move",
+	"odoo_post_journal_entry":    "account.move",
+	// Product tools
+	"odoo_find_product":        "product.product",
+	"odoo_get_product_summary": "product.product",
+	// Sale order tools
+	"odoo_find_sale_order":        "sale.order",
+	"odoo_get_sale_order_summary": "sale.order",
+	"odoo_confirm_sale_order":     "sale.order",
+	"odoo_create_sale_order":      "sale.order",
+	// Purchase order tools
+	"odoo_find_purchase_order":        "purchase.order",
+	"odoo_get_purchase_order_summary": "purchase.order",
+	// CRM tools
+	"odoo_create_lead": "crm.lead",
+	// Project tools
+	"odoo_find_task":          "project.task",
+	"odoo_find_my_tasks":      "project.task",
+	"odoo_create_task":        "project.task",
+	"odoo_update_task":        "project.task",
+	"odoo_update_task_status": "project.task",
+}
+
+// normalizeToolName extracts the registered MCP tool name from a runtime tool
+// name. The gateway prefixes MCP tools as "mcp_<server>_<tool>", e.g.
+// "mcp_odoo-mcp_odoo_find_partner" → "odoo_find_partner". Names without that
+// prefix are returned unchanged.
+func normalizeToolName(name string) string {
+	if i := strings.Index(name, "odoo-"); i >= 0 {
+		if j := strings.Index(name[i:], "_"); j >= 0 {
+			return name[i+j+1:]
+		}
+	}
+	return name
+}
+
+// toolModelForName returns the Odoo model for a runtime tool name, or "" when
+// the tool is not mapped (generic read/search/write tools have no single
+// model, so they never produce links).
+func toolModelForName(name string) string {
+	return odooToolModel[normalizeToolName(name)]
+}
+
+// odooRecordURL builds the web-client URL for an Odoo record. res.partner
+// records live under /odoo/contacts/{id}; every other model uses its real
+// dotted name (/odoo/account.move/42), matching the Odoo 17/18 web client.
+func odooRecordURL(model string, id int) string {
+	if model == "res.partner" {
+		return fmt.Sprintf("/odoo/contacts/%d", id)
+	}
+	return fmt.Sprintf("/odoo/%s/%d", model, id)
+}
+
+// odooLinkLabel returns a human-readable fallback label for a record id when
+// the tool result carried no name/display_name/number.
+func odooLinkLabel(model string, id int) string {
+	switch model {
+	case "res.partner":
+		return fmt.Sprintf("Cliente %d", id)
+	case "account.move":
+		return fmt.Sprintf("Factura %d", id)
+	case "sale.order":
+		return fmt.Sprintf("Pedido %d", id)
+	case "purchase.order":
+		return fmt.Sprintf("Pedido de compra %d", id)
+	case "product.product":
+		return fmt.Sprintf("Producto %d", id)
+	case "crm.lead":
+		return fmt.Sprintf("Oportunidad %d", id)
+	case "project.task":
+		return fmt.Sprintf("Tarea %d", id)
+	}
+	return fmt.Sprintf("Registro %d", id)
+}
+
+// recordFromMap extracts the id and a display label from a parsed Odoo
+// record. The label prefers name, then display_name, then number. Returns
+// id == 0 when the record carries no usable id.
+func recordFromMap(rec map[string]any) (int, string) {
+	id, _ := rec["id"].(float64)
+	if id <= 0 {
+		return 0, ""
+	}
+	for _, key := range []string{"name", "display_name", "number"} {
+		if v, ok := rec[key]; ok && v != nil {
+			if s := strings.TrimSpace(fmt.Sprintf("%v", v)); s != "" {
+				return int(id), s
+			}
+		}
+	}
+	return int(id), ""
+}
+
+// odooLink is an Odoo record parsed from a tool result.
+type odooLink struct {
+	model string
+	id    int
+	label string
+}
+
+// recordHit is an (id, label) pair extracted from one tool result.
+type recordHit struct {
+	id    int
+	label string
+}
+
 // addOdooRecordLinks appends clickable Odoo links to the final assistant
-// response when a tool call returned record ids. Small local models (350M)
-// cannot reliably emit markdown links, so the gateway does it
-// deterministically.
+// response when a tool call returned record ids, and converts any bare
+// /odoo/<model>/<id> URLs the model wrote in plain text into links. Small
+// local models (350M) cannot reliably emit markdown links, so the gateway
+// does it deterministically.
 //
 // IMPORTANT: it only looks at TOOL RESULTS (role=="tool") produced AFTER the
-// last user message (the current turn). It NEVER reads partner_id from tool
-// call ARGUMENTS — the 350M invents those (partner_id:99, sender_id:...),
-// which caused links to point at records from previous turns (e.g. always
+// last user message (the current turn). It NEVER reads ids from tool call
+// ARGUMENTS — the 350M invents those (partner_id:99, sender_id:...), which
+// caused links to point at records from previous turns (e.g. always
 // /odoo/contacts/10 after any "Busca el cliente Acme" earlier in the chat).
+// The Odoo model of each result is derived from the tool that produced it
+// (matched through the assistant's ToolCalls by ToolCallID), never from the
+// model's own arguments.
 func addOdooRecordLinks(messages []providers.Message, content string) string {
-	if strings.Contains(content, "/odoo/") {
-		// Already contains a link; don't double-append.
-		return content
-	}
-
 	// Find the index of the LAST user message. Only tool results after it
 	// belong to the current turn.
 	start := 0
@@ -1618,19 +1771,44 @@ func addOdooRecordLinks(messages []providers.Message, content string) string {
 			break
 		}
 	}
-	if start >= len(messages) {
-		return content
+
+	// Index assistant tool calls by ID so each tool result can be attributed
+	// to the tool that produced it (the tool name determines the Odoo model).
+	type toolCallInfo struct {
+		name string
+		args string
+	}
+	toolCallByID := map[string]toolCallInfo{}
+	for i := start; i < len(messages); i++ {
+		msg := messages[i]
+		if msg.Role != "assistant" {
+			continue
+		}
+		for _, tc := range msg.ToolCalls {
+			name := tc.Name
+			if name == "" && tc.Function != nil {
+				name = tc.Function.Name
+			}
+			if name == "" || tc.ID == "" {
+				continue
+			}
+			info := toolCallInfo{name: name}
+			if tc.Function != nil && tc.Function.Arguments != "" {
+				info.args = tc.Function.Arguments
+			} else if len(tc.Arguments) > 0 {
+				if b, err := json.Marshal(tc.Arguments); err == nil {
+					info.args = string(b)
+				}
+			}
+			toolCallByID[tc.ID] = info
+		}
 	}
 
-	// Collect record ids from TOOL RESULTS of the current turn only.
+	// Collect record links from TOOL RESULTS of the current turn only.
 	// The MCP server returns the real record id; the model's own arguments
 	// are untrusted (it hallucinates partner_id / sender_id values).
-	type odooLink struct {
-		id    int
-		label string
-	}
 	var found []odooLink
-	seen := map[int]bool{}
+	seen := map[string]bool{}
 
 	for i := start; i < len(messages); i++ {
 		msg := messages[i]
@@ -1641,55 +1819,188 @@ func addOdooRecordLinks(messages []providers.Message, content string) string {
 		if contentStr == "" || strings.Contains(contentStr, "error") {
 			continue
 		}
+		call := toolCallByID[msg.ToolCallID]
+		model := toolModelForName(call.name)
+		// Generic search/read tools have no fixed model: the model the
+		// search ran against is taken from the tool call arguments (the
+		// entity being searched, never a record id).
+		if model == "" && isGenericSearchTool(call.name) {
+			model = modelFromArgs(call.args)
+		}
+		if model == "" {
+			continue
+		}
 
-		var ids []int
-		// find_partner returns a bare partner id (int), e.g. "10".
-		if id, err := strconv.Atoi(contentStr); err == nil && id > 0 {
-			ids = append(ids, id)
-		} else {
-			// get_partner_summary returns {"partner_id": N, ...}; search_read
-			// returns [{"id": N, ...}].
-			var parsed map[string]any
-			if err := json.Unmarshal([]byte(contentStr), &parsed); err == nil {
-				if pid, ok := parsed["partner_id"].(float64); ok && pid > 0 {
-					ids = append(ids, int(pid))
-				}
+		records := extractRecordHits(contentStr)
+		for _, r := range records {
+			key := fmt.Sprintf("%s:%d", model, r.id)
+			if seen[key] {
+				continue
 			}
-			var arr []map[string]any
-			if err := json.Unmarshal([]byte(contentStr), &arr); err == nil {
-				for _, rec := range arr {
-					if rid, ok := rec["id"].(float64); ok && rid > 0 {
-						ids = append(ids, int(rid))
+			seen[key] = true
+			found = append(found, odooLink{model: model, id: r.id, label: r.label})
+		}
+	}
+
+	// Convert any bare /odoo/<model>/<id> URLs the model wrote in plain text
+	// into clickable markdown links (acceptance requirement #3), reusing the
+	// real record name from the current turn as the label when available.
+	knownLabels := map[string]string{}
+	for _, l := range found {
+		knownLabels[odooRecordURL(l.model, l.id)] = l.label
+	}
+	content = convertPlainURLsToLinks(content, knownLabels)
+
+	// Append links for records not already present in the answer (as markdown
+	// or as a plain-text URL the model already emitted) — no duplication.
+	var missing []odooLink
+	for _, l := range found {
+		if strings.Contains(content, odooRecordURL(l.model, l.id)) {
+			continue
+		}
+		missing = append(missing, l)
+	}
+	if len(missing) > 0 {
+		var sb strings.Builder
+		sb.WriteString(content)
+		for _, l := range missing {
+			label := l.label
+			if label == "" {
+				label = odooLinkLabel(l.model, l.id)
+			}
+			sb.WriteString(fmt.Sprintf("\n\n🔗 [%s](%s)", label, odooRecordURL(l.model, l.id)))
+		}
+		content = sb.String()
+	}
+	return content
+}
+
+// isGenericSearchTool reports whether the tool searches/reads an arbitrary
+// model passed as an argument (odoo_search / odoo_read / variants).
+func isGenericSearchTool(toolName string) bool {
+	n := strings.ToLower(toolName)
+	return strings.Contains(n, "odoo_search") || strings.Contains(n, "odoo_read")
+}
+
+// modelFromArgs extracts the "model" field from a tool call's JSON arguments.
+// Only the model name is read — never record ids (those are hallucinated by
+// small models and must come from tool results only).
+func modelFromArgs(args string) string {
+	if args == "" {
+		return ""
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(args), &parsed); err != nil {
+		return ""
+	}
+	if m, ok := parsed["model"].(string); ok && m != "" {
+		return m
+	}
+	return ""
+}
+
+// extractRecordHits parses a tool result string into (id, label) hits.
+// Supported shapes:
+//   - bare int: "10" (find_partner)
+//   - single object: {"id": N, "name": ...} (get_partner_summary)
+//   - array of objects: [{"id": N, "name": ...}] (search_read results)
+//   - wrapper object with nested record arrays: find_product →
+//     {"ok": true, "products": [{"id": N, "display_name": ...}], ...}
+func extractRecordHits(contentStr string) []recordHit {
+	var hits []recordHit
+	if id, err := strconv.Atoi(contentStr); err == nil && id > 0 {
+		return append(hits, recordHit{id: id})
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(contentStr), &parsed); err != nil {
+		return nil
+	}
+	var walk func(m map[string]any)
+	walk = func(m map[string]any) {
+		if id, label := recordFromMap(m); id > 0 {
+			hits = append(hits, recordHit{id: id, label: label})
+		}
+		// Nested record arrays produced by wrapper tools (find_product →
+		// {"products": [...]}, search wrappers → {"records": [...]}). One
+		// level deep to avoid unbounded recursion.
+		for _, key := range []string{"products", "records", "result", "data", "moves", "invoices", "orders", "partners"} {
+			arr, ok := m[key].([]any)
+			if !ok {
+				continue
+			}
+			for _, item := range arr {
+				if rec, ok := item.(map[string]any); ok {
+					if id, label := recordFromMap(rec); id > 0 {
+						hits = append(hits, recordHit{id: id, label: label})
 					}
 				}
 			}
 		}
-
-		for _, id := range ids {
-			if seen[id] {
-				continue
-			}
-			seen[id] = true
-			found = append(found, odooLink{id: id, label: ""})
-		}
 	}
+	switch v := parsed.(type) {
+	case []any:
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				walk(m)
+			}
+		}
+	case map[string]any:
+		walk(v)
+	}
+	return hits
+}
 
-	if len(found) == 0 {
+// odooPlainURLRe matches a bare Odoo web-client URL: /odoo/<model>/<id>.
+var odooPlainURLRe = regexp.MustCompile(`/odoo/[a-z][a-z0-9_.]*/\d+`)
+
+// convertPlainURLsToLinks rewrites every bare /odoo/<model>/<id> occurrence
+// in the final assistant text into a clickable markdown link. Occurrences
+// that are already the target of a markdown link (preceded by "](") are left
+// untouched. knownLabels maps an /odoo/... URL to the real record name from
+// the current turn's tool results, used as the link label when available.
+func convertPlainURLsToLinks(content string, knownLabels map[string]string) string {
+	idxs := odooPlainURLRe.FindAllStringIndex(content, -1)
+	if len(idxs) == 0 {
 		return content
 	}
-
-	// Build unique links. Partner records live at /odoo/contacts/{id} in
-	// Odoo 17/18 web client.
 	var sb strings.Builder
-	sb.WriteString(content)
-	for _, l := range found {
-		label := l.label
-		if label == "" {
-			label = fmt.Sprintf("Ver el registro %d", l.id)
+	prev := 0
+	for _, m := range idxs {
+		start, end := m[0], m[1]
+		// Skip URLs already used as link targets: "[label](/odoo/...)".
+		if start >= 2 && content[start-2:start] == "](" {
+			continue
 		}
-		sb.WriteString(fmt.Sprintf("\n\n🔗 [%s](/odoo/contacts/%d)", label, l.id))
+		url := content[start:end]
+		label := knownLabels[url]
+		if label == "" {
+			label = plainURLLabel(url)
+		}
+		sb.WriteString(content[prev:start])
+		sb.WriteString(fmt.Sprintf("[%s](%s)", label, url))
+		prev = end
 	}
+	sb.WriteString(content[prev:])
 	return sb.String()
+}
+
+// plainURLLabel derives a readable label for a bare URL like
+// /odoo/account.move/42, naming the entity by its model. The special
+// /odoo/contacts/{id} path is the res.partner web-client URL.
+func plainURLLabel(url string) string {
+	parts := strings.Split(strings.TrimPrefix(url, "/odoo/"), "/")
+	if len(parts) != 2 {
+		return url
+	}
+	model := parts[0]
+	if model == "contacts" {
+		model = "res.partner"
+	}
+	id, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return url
+	}
+	return odooLinkLabel(model, id)
 }
 
 // formatToolsForLog formats tool definitions for logging
@@ -2095,6 +2406,58 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 		{"pedido de venta", "sale"},
 		{"factura de proveedor", "vendor_invoice"}, {"factura de compra", "vendor_invoice"},
 		{"tarea de", "task"}, {"to-do", "task"},
+		// OCR-invoice MCP: when a message mentions an attached document/invoice
+		// (the addon injects "🧾 [Factura/Documento: name (ID: N)]"), the
+		// ocr-create-vendor-bill / ocr-invoice tools must reach the top-5.
+		{"adjunto", "ocr"}, {"adjunta", "ocr"}, {"adjuntar", "ocr"},
+		{"factura/documento", "ocr"}, {"documento", "ocr"}, {"pdf", "ocr"},
+		{"factura de proveedor", "ocr"}, {"factura de compra", "ocr"},
+		{"crear factura", "ocr"}, {"crea factura", "ocr"},
+		{"extrae", "ocr"}, {"extraer", "ocr"}, {"lee la factura", "ocr"},
+		{"factura adjunta", "ocr"}, {"factura adjunto", "ocr"},
+		{"vendor bill", "ocr"}, {"extract", "ocr"},
+		// Enterprise yes/no & number questions — the "silly" daily questions.
+		// "¿existe X?" / "¿hay X?" → search (existence check on any model)
+		{"existe", "search"}, {"existe el producto", "search"},
+		{"hay un pedido", "search"}, {"hay alguna", "search"}, {"hay algun", "search"},
+		{"existe el cliente", "search"}, {"existe la factura", "search"},
+		// "¿cuánto debe?" / "deuda" / "estado contable" → aging / partner balance
+		{"cuanto debe", "aging"}, {"cuanta deuda", "aging"}, {"deuda", "aging"},
+		{"estado contable", "aging"}, {"balance", "aging"}, {"balance del mes", "aging"},
+		{"me debe", "aging"}, {"deben", "aging"}, {"adeuda", "aging"}, {"adeudado", "aging"},
+		{"pendiente de cobro", "pending"}, {"pendientes de cobro", "pending"},
+		{"pendiente de pago", "pending"}, {"sin pagar", "pending"}, {"impagada", "pending"},
+		// "¿el pedido entró? / generó albarán?" → receipts/deliveries
+		{"genero albaran", "receipt"}, {"generado albaran", "receipt"}, {"entro el pedido", "receipt"},
+		{"llegó el pedido", "receipt"}, {"ha llegado", "receipt"}, {"recibido", "receipt"},
+		{"esta entregado", "delivery"}, {"se entrego", "delivery"}, {"entregado", "delivery"},
+		// "¿estas tareas están asignadas a X?" → tasks_for_user / task_stats
+		{"asignada a", "tasks_for_user"}, {"asignadas a", "tasks_for_user"},
+		{"quien tiene asignada", "tasks_for_user"}, {"a quien esta asignada", "tasks_for_user"},
+		// "¿cuántas tareas abiertas tengo?" → task_stats (mine)
+		{"tareas abiertas", "task_stats"}, {"tareas pendientes", "task_stats"},
+		{"mis tareas", "task_stats"}, {"tareas que tengo", "task_stats"},
+		// NRA-4xx: synthesis tools — intent recognition, the MCP builds the domain.
+		// "tareas de <persona>" / "tareas de <usuario>" → find_tasks_for_user
+		{"tareas de", "tasks_for_user"}, {"tareas del usuario", "tasks_for_user"},
+		{"tareas asignadas a", "tasks_for_user"}, {"tareas de juan", "tasks_for_user"},
+		{"tareas de maria", "tasks_for_user"}, {"tareas de ana", "tasks_for_user"},
+		{"tareas de carlos", "tasks_for_user"}, {"tareas de pedro", "tasks_for_user"},
+		{"tareas de laura", "tasks_for_user"}, {"tareas de luis", "tasks_for_user"},
+		{"que hace", "tasks_for_user"}, {"esta haciendo", "tasks_for_user"},
+		{"le quedan", "tasks_for_user"}, {"tiene asignadas", "tasks_for_user"},
+		// "pendientes de cerrar" / "sin cerrar" / "etapa cerrada" → get_task_stats
+		{"pendientes de cerrar", "task_stats"}, {"sin cerrar", "task_stats"},
+		{"etapa cerrada", "task_stats"}, {"abiertas", "task_stats"},
+		{"en progreso", "task_stats"}, {"sin finalizar", "task_stats"},
+		{"sin terminar", "task_stats"}, {"por hacer", "task_stats"},
+		{"quedan por", "task_stats"}, {"en curso", "task_stats"},
+		// "situación financiera" / "como estamos de dinero" → get_financial_snapshot
+		{"situacion financiera", "financial_snapshot"}, {"situacion economica", "financial_snapshot"},
+		{"como estamos de dinero", "financial_snapshot"}, {"resumen financiero", "financial_snapshot"},
+		{"panorama financiero", "financial_snapshot"}, {"como vamos de dinero", "financial_snapshot"},
+		{"estado financiero", "financial_snapshot"}, {"situacion del mes", "financial_snapshot"},
+		{"que me deben", "financial_snapshot"}, {"cuanto me deben", "financial_snapshot"},
 	}
 
 	// createIntentTerms mark creation queries — they activate the generic
@@ -2238,6 +2601,51 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 		if strings.Contains(queryLower, "oportunidad") &&
 			(strings.Contains(lower, "sale") || strings.Contains(lower, "helpdesk")) {
 			s -= genericCreatePenalty
+		}
+		// OCR routing: attached-document queries MUST prefer the ocr-invoice MCP
+		// tools (ocr-create-vendor-bill / ocr-invoice). The odoo-mcp
+		// *_from_ocr_validated tools are intermediate validation steps that the
+		// small model cannot fill correctly (it hallucinates attachment_ids and
+		// loops for 20 iterations) — push them out of the top-k entirely.
+		ocrIntent := false
+		for _, term := range []string{"adjunto", "adjunta", "adjuntar", "documento",
+			"pdf", "factura adjunta", "factura adjunto", "factura de proveedor",
+			"factura de compra", "crear factura", "crea factura", "extrae", "extraer",
+			"lee la factura", "vendor bill", "extract"} {
+			if strings.Contains(queryLower, term) {
+				ocrIntent = true
+				break
+			}
+		}
+		if ocrIntent && strings.Contains(lower, "from_ocr_validated") {
+			s -= genericCreatePenalty
+		}
+		if ocrIntent && strings.Contains(lower, "ocr-invoice") {
+			s += 8 // boost the real OCR MCP tools above everything else
+		}
+		// Counting queries ("¿cuántos X tenemos?", "¿cuántas X?"): search/count
+		// tools MUST beat find_*/get_*_summary. The 1.2B model defaults to
+		// find_partner for counting; the retrieval must not offer it.
+		countIntent := strings.Contains(queryLower, "cuantos") ||
+			strings.Contains(queryLower, "cuantas") ||
+			strings.Contains(queryLower, "cuantos hay") ||
+			strings.Contains(queryLower, "numero de") ||
+			strings.Contains(queryLower, "total de") ||
+			strings.Contains(queryLower, "cuantos clientes") ||
+			strings.Contains(queryLower, "cuantas facturas") ||
+			strings.Contains(queryLower, "cuantos pedidos") ||
+			strings.Contains(queryLower, "cuantos productos")
+		if countIntent {
+			if strings.Contains(lower, "search_read") || strings.Contains(lower, "search") ||
+				strings.Contains(lower, "count") {
+				s += 12 // counting tools win decisively
+			}
+			if strings.Contains(lower, "find_partner") || strings.Contains(lower, "find_sale") ||
+				strings.Contains(lower, "get_partner_summary") || strings.Contains(lower, "get_record_summary") ||
+				strings.Contains(lower, "get_sale_order_summary") || strings.Contains(lower, "find_task") ||
+				strings.Contains(lower, "get_task_stats") || strings.Contains(lower, "get_financial") {
+				s -= 1000 // single-record tools must NOT be offered for counting
+			}
 		}
 		return s
 	}

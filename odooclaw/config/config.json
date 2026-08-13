@@ -57,8 +57,9 @@
     {
       "model_name": "odooclaw-light-1.2",
       "model": "odooclaw-light-1.2",
-      "api_base": "http://192.168.1.14:8082/v1",
-      "prompt_tools_in_text": false
+      "api_base": "http://192.168.1.14:8084/v1",
+      "prompt_tools_in_text": true,
+      "api_key": "local"
     }
   ],
   "channels": {
@@ -327,7 +328,12 @@
             "VISION_MODEL": "odooclaw-vision",
             "OCR_TIMEOUT_SECONDS": "240",
             "OCR_MAX_PAGES": "4",
-            "OCR_IMAGE_DPI": "170"
+            "OCR_IMAGE_DPI": "170",
+            "OCR_MODE": "pipeline",
+            "OCR_PIPELINE_VISION_URL": "http://192.168.1.14:8093/v1",
+            "OCR_PIPELINE_VISION_MODEL": "odooclaw-vision",
+            "OCR_PIPELINE_LLM_URL": "http://192.168.1.14:8084/v1",
+            "OCR_PIPELINE_LLM_MODEL": "LFM2.5-1.2B-Instruct-base-Q4_K_M"
           }
         },
         "filesystem": {
@@ -420,5 +426,6 @@
   "gateway": {
     "host": "0.0.0.0",
     "port": 18790
-  }
+  },
+  "default_model": "odooclaw-light-1.2"
 }

@@ -1,9 +1,8 @@
 import logging
-import threading
-
 import requests
-
-from odoo import _, api, models, tools
+import json
+import threading
+from odoo import models, api, tools, _
 
 _logger = logging.getLogger(__name__)
 
@@ -36,8 +35,8 @@ class MailThread(models.AbstractModel):
         )
 
     @api.returns("mail.message", lambda value: value.id)
-    def message_post(self, **kwargs):  # noqa: C901
-        message = super().message_post(**kwargs)
+    def message_post(self, **kwargs):
+        message = super(MailThread, self).message_post(**kwargs)
 
         # Determine if OdooClaw is mentioned or it's a direct message to OdooClaw
         odooclaw_user = self.env.ref(
@@ -122,13 +121,26 @@ class MailThread(models.AbstractModel):
             }
 
             if not is_dm and message.model == "discuss.channel":
-                private_channel = self._resolve_private_reply_channel(
-                    message.author_id, odooclaw_user.partner_id
-                )
-                payload["reply_model"] = "discuss.channel"
-                payload["reply_res_id"] = private_channel.id
+                channel = self.env["discuss.channel"].browse(message.res_id)
+                if channel.channel_type == "chat":
+                    # Existing 1-to-1 chat: keep private reply behaviour
+                    private_channel = self._resolve_private_reply_channel(
+                        message.author_id, odooclaw_user.partner_id
+                    )
+                    payload["reply_model"] = "discuss.channel"
+                    payload["reply_res_id"] = private_channel.id
+                # else: group channel → reply in the same channel (reply_model/res_id unchanged)
 
             # We use threading to not block the current transaction
+
+            # Generate reply token — allows OdooClaw to identify solicited replies
+            reply_token_rec = self.env["mail.odooclaw.reply.token"].sudo()._generate(
+                model=payload["reply_model"],
+                res_id=payload["reply_res_id"],
+                message_id=message.id,
+            )
+            payload["reply_token"] = reply_token_rec.token
+
             webhook_url = (
                 self.env["ir.config_parameter"]
                 .sudo()
@@ -148,9 +160,7 @@ class MailThread(models.AbstractModel):
                         headers["X-OdooClaw-Token"] = token
                     response = requests.post(url, json=data, headers=headers, timeout=5)
                     if response.status_code == 401:
-                        _logger.error(
-                            "OdooClaw rejected webhook: invalid token for %s", url
-                        )
+                        _logger.error("OdooClaw rejected webhook: invalid token for %s", url)
 
                 except Exception as e:
                     _logger.error("Failed to send webhook to OdooClaw: %s", str(e))

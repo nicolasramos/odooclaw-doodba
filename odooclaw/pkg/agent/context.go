@@ -89,6 +89,14 @@ func (cb *ContextBuilder) SetModel(model string) {
 	cb.model = model
 }
 
+// SaveRecipe stores a successful query→tool+args resolution in the
+// recipe store (always-on local memory) for reuse as few-shot context.
+func (cb *ContextBuilder) SaveRecipe(query, tool, args, channel, chatID, senderID string) {
+	if cb.memory != nil {
+		cb.memory.SaveRecipe(query, tool, args, channel, chatID, senderID)
+	}
+}
+
 // isLocalSmallModel reports whether the model name refers to a small local
 // fine-tuned model that needs a minimal system prompt.
 func (cb *ContextBuilder) isLocalSmallModel() bool {
@@ -122,11 +130,15 @@ Formato de respuesta con registros de Odoo:
 - Cuando la herramienta devuelva un registro con su id, incluye SIEMPRE un enlace clicable en markdown: [Nombre del registro](/odoo/<modelo>/{id}).
   Ejemplo para un partner: [Acme Corporation](/odoo/contacts/10). Ejemplo para una factura: [INV/2026/0001](/odoo/account.move/42).
 - El usuario no quiere volver a buscar el registro manualmente: el enlace es OBLIGATORIO cuando el resultado contiene registros.
-- Usa la ruta /odoo/contacts/{id} para res.partner y /odoo/<modelo_en_snake_case>/{id} para el resto.
+- Usa /odoo/contacts/{id} para res.partner y /odoo/<modelo>/{id} (puntos, p.ej. /odoo/account.move/42) para el resto.
 
-Conteo de registros:
-- Cuando el usuario pregunte cuántos registros hay (clientes, facturas, pedidos...), usa la herramienta de búsqueda adecuada (odoo_search_read o similar) con domain [] o el domain mínimo, y responde con el número de resultados.
-- No inventes un número: cuenta sobre los ids que devuelve la herramienta.`
+Conteo y búsqueda de registros:
+- ¿El usuario quiere CONTAR registros (clientes, facturas, pedidos...)? Usa SIEMPRE la herramienta odoo_search_read con domain=[] (o el filtro mínimo pedido) sobre el modelo correspondiente: res.partner para clientes, account.move para facturas, sale.order para pedidos.
+- La tool odoo_search_read devuelve la lista de registros: cuenta la longitud de esa lista y responde con ese número exacto.
+- PROHIBIDO usar odoo_get_partner_summary, odoo_find_partner u odoo_get_partner para CONTAR o LISTAR. Esas tools son SOLO para consultar los datos de UN partner cuando el usuario da su nombre, email o CIF concreto.
+- Si no tienes la tool odoo_search_read disponible entre tus herramientas, usa la tool de búsqueda genérica que exista (odoo_search o similar) con el mismo domain.
+- NUNCA respondas 'no tengo acceso a una herramienta' si la tool de búsqueda existe: búscala entre las herramientas disponibles y úsala.
+- No inventes un número: responde basándote en el resultado real de la herramienta.`
 }
 
 func (cb *ContextBuilder) getIdentity() string {

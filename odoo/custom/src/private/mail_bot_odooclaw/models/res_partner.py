@@ -16,10 +16,8 @@ class ResPartner(models.Model):
             odooclaw_partner = odooclaw_user.partner_id
             if odooclaw_partner in self:
                 odooclaw_partner.im_status = "online"
-
-        to_process = self.filtered(
-            lambda r: not odooclaw_user or r != odooclaw_user.partner_id
-        )
+                
+        to_process = self.filtered(lambda r: not odooclaw_user or r != odooclaw_user.partner_id)
         if not to_process:
             return
         return super(ResPartner, to_process)._compute_im_status()
