@@ -2,7 +2,6 @@ package providers
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -302,17 +301,6 @@ func parseLFMFunctionCall(raw string, callIndex int) (ToolCall, bool) {
 	callText := strings.TrimSpace(raw)
 	open := strings.IndexByte(callText, '(')
 	if open <= 0 {
-		// Model emitted a bare tool name without args, e.g.
-		// <|tool_call_start|>[mcp_odoo-mcp_odoo_get_ar_ap_aging]<|tool_call_end|>.
-		// Treat it as a call with empty arguments instead of dropping it.
-		if callText != "" {
-			return ToolCall{
-				ID:        fmt.Sprintf("qwen_call_%d", callIndex),
-				Type:      "function",
-				Name:      callText,
-				Arguments: map[string]any{},
-			}, true
-		}
 		return ToolCall{}, false
 	}
 	close := findMatchingDelimiter(callText, open, '(', ')')

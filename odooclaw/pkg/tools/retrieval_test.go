@@ -207,7 +207,7 @@ func TestRegistry_SetRetrievalEngine(t *testing.T) {
 	assert.NotEmpty(t, results)
 
 	// Clear
-	registry.ClearDetrievalEngine()
+	registry.ClearRetrievalEngine()
 	assert.Nil(t, registry.GetRetrievalEngine())
 
 	// Should return nil when no engine
@@ -253,4 +253,59 @@ func TestRegistry_ToProviderDefsWithRetrieval(t *testing.T) {
 		names[d.Function.Name] = true
 	}
 	assert.True(t, names["memory_search"], "core tool should always be included")
+}
+
+func TestSynonymRewriter_Rewrite(t *testing.T) {
+	r := NewSynonymRewriter()
+
+	// Test synonym expansion
+	result := r.Rewrite("search create delete")
+	assert.Contains(t, result, "search")
+	assert.Contains(t, result, "OR find")
+	assert.Contains(t, result, "create")
+	assert.Contains(t, result, "OR new")
+	assert.Contains(t, result, "delete")
+	assert.Contains(t, result, "OR remove")
+
+	// Test no-op rewriter
+	noop := NoopRewriter{}
+	assert.Equal(t, "test query", noop.Rewrite("test query"))
+}
+
+func TestRetrievalEngine_IndexEmptyRegistry(t *testing.T) {
+	engine, err := NewRetrievalEngine(NoopRewriter{})
+	require.NoError(t, err)
+	defer engine.Close()
+
+	registry := NewToolRegistry()
+	err = engine.IndexTools(registry)
+	require.NoError(t, err)
+
+	// Should handle empty index gracefully
+	results, err := engine.Retrieve("anything", "", 5)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestRetrievalEngine_IndexTools(t *testing.T) {
+	engine, err := NewRetrievalEngine(NoopRewriter{})
+	require.NoError(t, err)
+	defer engine.Close()
+
+	registry := NewToolRegistry()
+	registry.Register(&mockTool{
+		name:        "test_tool",
+		description: "A test tool for indexing",
+		params:      map[string]any{"type": "object"},
+	})
+
+	err = engine.IndexTools(registry)
+	require.NoError(t, err)
+	assert.True(t, engine.IsIndexed())
+
+	// Should find the tool
+	results, err := engine.Retrieve("test tool", "", 5)
+	require.NoError(t, err)
+	assert.NotEmpty(t, results)
+	assert.Contains(t, results, "test_tool")
 }

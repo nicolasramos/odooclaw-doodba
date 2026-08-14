@@ -13,9 +13,9 @@ import (
 )
 
 type ToolRegistry struct {
-	tools    map[string]Tool
-	retrieval *RetrievalEngine
-	mu       sync.RWMutex
+	tools           map[string]Tool
+	mu              sync.RWMutex
+	retrievalEngine *RetrievalEngine
 }
 
 func NewToolRegistry() *ToolRegistry {
@@ -235,93 +235,26 @@ func (r *ToolRegistry) GetSummaries() []string {
 	return summaries
 }
 
-// --- Tool Retrieval Integration ---
-
-// SetRetrievalEngine attaches a RetrievalEngine for dynamic tool filtering.
+// SetRetrievalEngine attaches a retrieval engine to this registry.
+// The engine will be used by RetrieveRelevant and ToProviderDefsWithRetrieval.
 func (r *ToolRegistry) SetRetrievalEngine(engine *RetrievalEngine) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.retrieval = engine
+	r.retrievalEngine = engine
 }
 
 // GetRetrievalEngine returns the attached retrieval engine, if any.
 func (r *ToolRegistry) GetRetrievalEngine() *RetrievalEngine {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.retrieval
+	return r.retrievalEngine
 }
 
-// ClearDetrievalEngine detaches the retrieval engine.
-func (r *ToolRegistry) ClearDetrievalEngine() {
+// ClearRetrievalEngine removes the attached retrieval engine.
+func (r *ToolRegistry) ClearRetrievalEngine() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.retrieval = nil
-}
-
-// RetrieveRelevant returns the most relevant tool names for a query.
-// Returns nil when no engine is attached.
-func (r *ToolRegistry) RetrieveRelevant(query string, module string, limit int) []string {
-	r.mu.RLock()
-	engine := r.retrieval
-	r.mu.RUnlock()
-
-	if engine == nil {
-		return nil
-	}
-
-	names, err := engine.Retrieve(query, module, limit)
-	if err != nil {
-		logger.WarnCF("tools", "Tool retrieval failed", map[string]any{
-			"error": err.Error(),
-		})
-		return nil
-	}
-	return names
-}
-
-// ToProviderDefsWithRetrieval returns tool definitions filtered by retrieval.
-// Always includes core tools (native, memory, system) with full schemas.
-// Retrieved tools get compact schemas to reduce token count.
-func (r *ToolRegistry) ToProviderDefsWithRetrieval(query string, module string, limit int) []providers.ToolDefinition {
-	retrieved := r.RetrieveRelevant(query, module, limit)
-	retrievedSet := make(map[string]bool, len(retrieved))
-	for _, name := range retrieved {
-		retrievedSet[name] = true
-	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	sorted := r.sortedToolNames()
-	defs := make([]providers.ToolDefinition, 0, len(retrieved)+10)
-
-	for _, name := range sorted {
-		tool := r.tools[name]
-		schema := ToolToSchema(tool)
-
-		fn, ok := schema["function"].(map[string]any)
-		if !ok {
-			continue
-		}
-		tName, _ := fn["name"].(string)
-		desc, _ := fn["description"].(string)
-		params, _ := fn["parameters"].(map[string]any)
-
-		// Core tools always included with full schema
-		isCore := isCoreTool(name)
-		if isCore || retrievedSet[name] {
-			defs = append(defs, providers.ToolDefinition{
-				Type: "function",
-				Function: providers.ToolFunctionDefinition{
-					Name:        tName,
-					Description: desc,
-					Parameters:  params,
-				},
-			})
-		}
-	}
-
-	return defs
+	r.retrievalEngine = nil
 }
 
 // isCoreTool determines if a tool is a "core" tool that should always be included.
@@ -337,4 +270,88 @@ func isCoreTool(name string) bool {
 		}
 	}
 	return false
+}
+
+// RetrieveRelevant finds the most relevant tools for a query using the retrieval engine.
+// Returns tool names ordered by relevance. Falls back to all tools if no engine is set.
+func (r *ToolRegistry) RetrieveRelevant(query string, module string, limit int) []string {
+	r.mu.RLock()
+	engine := r.retrievalEngine
+	r.mu.RUnlock()
+
+	if engine == nil {
+		return nil
+	}
+
+	results, err := engine.Retrieve(query, module, limit)
+	if err != nil {
+		logger.WarnCF("tools", "Retrieval failed, returning all tools",
+			map[string]any{"error": err.Error(), "query": query})
+		return r.List()
+	}
+
+	if len(results) == 0 {
+		return nil
+	}
+
+	return results
+}
+
+// ToProviderDefsWithRetrieval converts tool definitions to provider format,
+// but only includes tools relevant to the given query (via retrieval engine).
+// Always includes core tools (memory_search, exec) regardless of relevance.
+func (r *ToolRegistry) ToProviderDefsWithRetrieval(query string, module string, limit int) []providers.ToolDefinition {
+	r.mu.RLock()
+	engine := r.retrievalEngine
+	allDefs := make([]providers.ToolDefinition, 0)
+	for _, name := range r.sortedToolNames() {
+		tool := r.tools[name]
+		schema := ToolToSchema(tool)
+		fn, ok := schema["function"].(map[string]any)
+		if !ok {
+			continue
+		}
+		nameStr, _ := fn["name"].(string)
+		desc, _ := fn["description"].(string)
+		params, _ := fn["parameters"].(map[string]any)
+		allDefs = append(allDefs, providers.ToolDefinition{
+			Type: "function",
+			Function: providers.ToolFunctionDefinition{
+				Name:        nameStr,
+				Description: desc,
+				Parameters:  params,
+			},
+		})
+	}
+	r.mu.RUnlock()
+
+	if engine == nil {
+		return allDefs
+	}
+
+	relevantNames := r.RetrieveRelevant(query, module, limit)
+	if len(relevantNames) == 0 {
+		return allDefs // fallback: return all tools
+	}
+
+	// Build set of relevant tool names
+	relevantSet := make(map[string]bool, len(relevantNames))
+	for _, name := range relevantNames {
+		relevantSet[name] = true
+	}
+
+	// Always include core tools regardless of relevance
+	coreTools := map[string]bool{
+		"memory_search": true,
+		"exec":          true,
+	}
+
+	var defs []providers.ToolDefinition
+	for _, def := range allDefs {
+		if relevantSet[def.Function.Name] || coreTools[def.Function.Name] {
+			defs = append(defs, def)
+		}
+	}
+
+	return defs
 }

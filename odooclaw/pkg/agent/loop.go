@@ -19,7 +19,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/nicolasramos/odooclaw/pkg/browsercopilot"
 	"github.com/nicolasramos/odooclaw/pkg/bus"
@@ -49,6 +48,7 @@ type AgentLoop struct {
 	fallback       *providers.FallbackChain
 	channelManager *channels.Manager
 	mediaStore     media.MediaStore
+	mcpManager     *mcp.Manager
 	pipeline       *multimodel.Pipeline // Multi-model pipeline (nil when disabled)
 }
 
@@ -218,6 +218,12 @@ func registerSharedTools(
 		agent.Tools.Register(tools.NewMemoryDebugExplainRetrievalTool(agent.Workspace))
 		agent.Tools.Register(tools.NewMemoryImportHistoryTool(agent.Workspace))
 
+		// NRA-511: structured session memory tools (state + pending confirmations)
+		sessionMemStore := corememory.NewSessionMemoryStore(filepath.Join(agent.Workspace, "memory"))
+		agent.Tools.Register(tools.NewMemorySetSessionStateTool(sessionMemStore))
+		agent.Tools.Register(tools.NewMemorySetPendingTool(sessionMemStore))
+		agent.Tools.Register(tools.NewMemoryClearPendingTool(sessionMemStore))
+
 		// Skill discovery and installation tools
 		registryMgr := skills.NewRegistryManagerFromConfig(skills.RegistryConfig{
 			MaxConcurrentSearches: cfg.Tools.Skills.MaxConcurrentSearches,
@@ -248,6 +254,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 	// Initialize MCP servers for all agents
 	if al.cfg.Tools.MCP.Enabled {
 		mcpManager := mcp.NewManager()
+		al.mcpManager = mcpManager
 		// Ensure MCP connections are cleaned up on exit, regardless of initialization success
 		// This fixes resource leak when LoadFromMCPConfig partially succeeds then fails
 		defer func() {
@@ -333,6 +340,13 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					"agent_count":         agentCount,
 				})
 		}
+
+		// Wire the Odoo system webhook (/webhook/odoo/system) to invalidate
+		// the MCP odoo-mcp allowlist cache. The Python policy cache lives in
+		// the MCP server process; the gateway reaches it through an MCP tool
+		// call on the existing stdio session. If no odoo MCP server is
+		// connected, the 60s TTL remains the degradation fallback.
+		al.wireOdooAllowlistCacheResetter(mcpManager)
 	}
 
 	for al.running.Load() {
@@ -424,6 +438,56 @@ func (al *AgentLoop) RegisterTool(tool tools.Tool) {
 
 func (al *AgentLoop) SetChannelManager(cm *channels.Manager) {
 	al.channelManager = cm
+}
+
+// GetMCPManager returns the MCP manager used by the agent loop, or nil if MCP
+// is disabled or the loop has not started yet. It is used by the gateway to
+// wire the /system endpoint's validator reload callback.
+func (al *AgentLoop) GetMCPManager() *mcp.Manager {
+	return al.mcpManager
+}
+
+// wireOdooAllowlistCacheResetter connects the Odoo system webhook
+// (/webhook/odoo/system) to the MCP odoo-mcp server's allowlist cache
+// invalidation tool. The Python policy cache lives in the MCP server
+// process, so the gateway reaches it through a tools/call on the existing
+// stdio session (Go→MCP). No-op when the odoo channel is absent, the MCP
+// server is not connected, or the channel does not expose a resetter hook.
+func (al *AgentLoop) wireOdooAllowlistCacheResetter(mcpManager *mcp.Manager) {
+	if al.channelManager == nil || mcpManager == nil {
+		return
+	}
+	ch, ok := al.channelManager.GetChannel("odoo")
+	if !ok {
+		return
+	}
+	resetter, ok := ch.(channels.AllowlistCacheResetter)
+	if !ok {
+		return
+	}
+	serverName := odooMCPServerName(mcpManager)
+	if serverName == "" {
+		logger.WarnC("agent", "odoo MCP server not connected; allowlist cache reset unavailable (60s TTL fallback)")
+		return
+	}
+	resetter.SetAllowlistCacheResetter(func(ctx context.Context) error {
+		_, err := mcpManager.CallTool(ctx, serverName, "reset_allowed_models_cache", map[string]any{})
+		return err
+	})
+	logger.InfoCF("agent", "Wired Odoo allowlist cache resetter", map[string]any{
+		"mcp_server": serverName,
+	})
+}
+
+// odooMCPServerName returns the connected MCP server name for the Odoo MCP
+// (config may key it as "odoo-mcp" or "odoo-manager"), or "" if not connected.
+func odooMCPServerName(m *mcp.Manager) string {
+	for _, name := range []string{"odoo-mcp", "odoo-manager"} {
+		if _, ok := m.GetServer(name); ok {
+			return name
+		}
+	}
+	return ""
 }
 
 // SetMediaStore injects a MediaStore for media lifecycle management.
@@ -1217,15 +1281,10 @@ func (al *AgentLoop) runLLMIteration(
 
 			errMsg := strings.ToLower(err.Error())
 
-			// Check if this is a network/HTTP timeout — not a context window error.
-			isTimeoutError := errors.Is(err, context.DeadlineExceeded) ||
-				strings.Contains(errMsg, "deadline exceeded") ||
-				strings.Contains(errMsg, "client.timeout") ||
-				strings.Contains(errMsg, "timed out") ||
-				strings.Contains(errMsg, "timeout exceeded")
+			retryReason, isTransient := transientLLMRetryReason(err)
 
-			// Detect real context window / token limit errors, excluding network timeouts.
-			isContextError := !isTimeoutError && (strings.Contains(errMsg, "context_length_exceeded") ||
+			// Detect real context window / token limit errors, excluding transient errors.
+			isContextError := !isTransient && (strings.Contains(errMsg, "context_length_exceeded") ||
 				strings.Contains(errMsg, "context window") ||
 				strings.Contains(errMsg, "maximum context length") ||
 				strings.Contains(errMsg, "token limit") ||
@@ -1235,10 +1294,11 @@ func (al *AgentLoop) runLLMIteration(
 				strings.Contains(errMsg, "prompt is too long") ||
 				strings.Contains(errMsg, "request too large"))
 
-			if isTimeoutError && retry < maxRetries {
+			if isTransient && retry < maxRetries {
 				backoff := time.Duration(retry+1) * 5 * time.Second
-				logger.WarnCF("agent", "Timeout error, retrying after backoff", map[string]any{
+				logger.WarnCF("agent", "Transient LLM error, retrying after backoff", map[string]any{
 					"error":   err.Error(),
+					"reason":  retryReason,
 					"retry":   retry,
 					"backoff": backoff.String(),
 				})
@@ -1256,6 +1316,17 @@ func (al *AgentLoop) runLLMIteration(
 					},
 				)
 
+				if !al.forceCompression(agent, opts.SessionKey) {
+					logger.WarnCF(
+						"agent",
+						"Context compression made no progress; skipping identical retry",
+						map[string]any{
+							"session_key": opts.SessionKey,
+							"retry":       retry,
+						},
+					)
+					break
+				}
 				if retry == 0 && !constants.IsInternalChannel(opts.Channel) {
 					al.bus.PublishOutbound(ctx, bus.OutboundMessage{
 						Channel: opts.Channel,
@@ -1264,7 +1335,6 @@ func (al *AgentLoop) runLLMIteration(
 					})
 				}
 
-				al.forceCompression(agent, opts.SessionKey)
 				newHistory := agent.Sessions.GetHistory(opts.SessionKey)
 				newSummary := agent.Sessions.GetSummary(opts.SessionKey)
 				messages = agent.ContextBuilder.BuildMessages(
@@ -1371,46 +1441,8 @@ func (al *AgentLoop) runLLMIteration(
 		// Save assistant message with tool calls to session
 		agent.Sessions.AddFullMessage(opts.SessionKey, assistantMsg)
 
-		// Defense against hallucinated tool names: small local models
-		// sometimes emit tool calls seen in recipes/history but NOT in the
-		// offered top-k set. Never execute those — feed back an error so the
-		// model retries with a tool it was actually offered.
-		offeredNames := make(map[string]bool, len(providerToolDefs))
-		offeredList := make([]string, 0, len(providerToolDefs))
-		for _, td := range providerToolDefs {
-			offeredNames[td.Function.Name] = true
-			offeredList = append(offeredList, td.Function.Name)
-		}
-
 		// Execute tool calls
 		for _, tc := range normalizedToolCalls {
-			// The fine-tuned model was trained without the mcp_ prefix and
-			// sometimes emits underscores instead of hyphens (e.g.
-			// mcp_odoo_mcp_odoo_search). Normalize to the exact offered name
-			// before validating.
-			resolved := tc.Name
-			if !offeredNames[resolved] {
-				norm := strings.ReplaceAll(resolved, "_", "-")
-				for _, offered := range offeredList {
-					if strings.ReplaceAll(offered, "_", "-") == norm {
-						resolved = offered
-						break
-					}
-				}
-			}
-			if resolved != tc.Name {
-				tc.Name = resolved
-			}
-			if !offeredNames[tc.Name] {
-				errMsg := fmt.Sprintf("Tool %q is not available in this turn. Choose one of the available tools: %s", tc.Name, strings.Join(offeredList, ", "))
-				rejectedMsg := providers.Message{Role: "tool", Content: errMsg, ToolCallID: tc.ID}
-				messages = append(messages, rejectedMsg)
-				agent.Sessions.AddFullMessage(opts.SessionKey, rejectedMsg)
-				logger.WarnCF("agent", "Rejected hallucinated tool call (not in offered set)", map[string]any{
-					"tool": tc.Name, "iteration": iteration,
-				})
-				continue
-			}
 			argsJSON, _ := json.Marshal(tc.Arguments)
 			argsPreview := utils.Truncate(string(argsJSON), 200)
 			logger.InfoCF("agent", fmt.Sprintf("Tool call: %s(%s)", tc.Name, argsPreview),
@@ -1553,45 +1585,12 @@ func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, c
 
 // forceCompression aggressively reduces context when the limit is hit.
 // It drops the oldest 50% of messages (keeping system prompt and last user message).
-func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
+func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) bool {
 	history := agent.Sessions.GetHistory(sessionKey)
-	if len(history) <= 4 {
-		return
+	newHistory, droppedCount, compressed := compressedHistory(history)
+	if !compressed {
+		return false
 	}
-
-	// Keep system prompt (usually [0]) and the very last message (user's trigger)
-	// We want to drop the oldest half of the *conversation*
-	// Assuming [0] is system, [1:] is conversation
-	conversation := history[1 : len(history)-1]
-	if len(conversation) == 0 {
-		return
-	}
-
-	// Helper to find the mid-point of the conversation
-	mid := len(conversation) / 2
-
-	// New history structure:
-	// 1. System Prompt (with compression note appended)
-	// 2. Second half of conversation
-	// 3. Last message
-
-	droppedCount := mid
-	keptConversation := conversation[mid:]
-
-	newHistory := make([]providers.Message, 0, 1+len(keptConversation)+1)
-
-	// Append compression note to the original system prompt instead of adding a new system message
-	// This avoids having two consecutive system messages which some APIs (like Zhipu) reject
-	compressionNote := fmt.Sprintf(
-		"\n\n[System Note: Emergency compression dropped %d oldest messages due to context limit]",
-		droppedCount,
-	)
-	enhancedSystemPrompt := history[0]
-	enhancedSystemPrompt.Content = enhancedSystemPrompt.Content + compressionNote
-	newHistory = append(newHistory, enhancedSystemPrompt)
-
-	newHistory = append(newHistory, keptConversation...)
-	newHistory = append(newHistory, history[len(history)-1]) // Last message
 
 	// Update session
 	agent.Sessions.SetHistory(sessionKey, newHistory)
@@ -1602,6 +1601,7 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 		"dropped_msgs": droppedCount,
 		"new_count":    len(newHistory),
 	})
+	return true
 }
 
 // GetStartupInfo returns information about loaded tools and skills for logging.
@@ -2189,12 +2189,7 @@ func (al *AgentLoop) summarizeBatch(
 // Uses a safe heuristic of 2.5 characters per token to account for CJK and other
 // overheads better than the previous 3 chars/token.
 func (al *AgentLoop) estimateTokens(messages []providers.Message) int {
-	totalChars := 0
-	for _, m := range messages {
-		totalChars += utf8.RuneCountInString(m.Content)
-	}
-	// 2.5 chars per token = totalChars * 2 / 5
-	return totalChars * 2 / 5
+	return estimateMessageTokens(messages)
 }
 
 func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) (string, bool) {
@@ -2661,109 +2656,6 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 		if ocrIntent && strings.Contains(lower, "ocr-invoice") {
 			s += 8 // boost the real OCR MCP tools above everything else
 		}
-		// Counting queries ("¿cuántos X tenemos?", "¿cuántas X?"): search/count
-		// tools MUST beat find_*/get_*_summary. The 1.2B model defaults to
-		// find_partner for counting; the retrieval must not offer it.
-		countIntent := strings.Contains(queryLower, "cuantos") ||
-			strings.Contains(queryLower, "cuantas") ||
-			strings.Contains(queryLower, "cuantos hay") ||
-			strings.Contains(queryLower, "numero de") ||
-			strings.Contains(queryLower, "total de") ||
-			strings.Contains(queryLower, "cuantos clientes") ||
-			strings.Contains(queryLower, "cuantas facturas") ||
-			strings.Contains(queryLower, "cuantos pedidos") ||
-			strings.Contains(queryLower, "cuantos productos")
-		// Balance/debt queries ("saldo", "deuda", "cuánto debe") → AR/AP aging.
-		balanceIntent := strings.Contains(queryLower, "saldo") ||
-			strings.Contains(queryLower, "deuda") ||
-			strings.Contains(queryLower, "deben") ||
-			strings.Contains(queryLower, "adeuda") ||
-			strings.Contains(queryLower, "me debe") ||
-			strings.Contains(queryLower, "cuanto debe") ||
-			strings.Contains(queryLower, "balance")
-		if countIntent {
-			// NRA-556: odoo_count (deterministic search_count) must ALWAYS win for
-			// counting queries. The 1.2B model cannot count ID lists from
-			// odoo_search (picks max ID / hallucinates), so the dedicated tool
-			// gets a decisive boost over every other search/count tool.
-			if strings.Contains(lower, "odoo_count") {
-				s += 30
-			}
-			if strings.Contains(lower, "search_read") || strings.Contains(lower, "search") ||
-				strings.Contains(lower, "count") {
-				s += 12 // counting tools win decisively
-			}
-			// The v8 model was trained with odoo_search for counting and keeps
-			// calling it even when odoo_count is offered (verified E2E: still
-			// picked odoo_search after +30 boost). Push odoo_search OUT of the
-			// top-k for counting so the model has no choice but odoo_count.
-			if strings.Contains(lower, "odoo_search") {
-				s -= 1000
-			}
-			if strings.Contains(lower, "find_partner") || strings.Contains(lower, "find_sale") ||
-				strings.Contains(lower, "get_partner_summary") || strings.Contains(lower, "get_record_summary") ||
-				strings.Contains(lower, "get_sale_order_summary") || strings.Contains(lower, "find_task") ||
-				strings.Contains(lower, "get_task_stats") || strings.Contains(lower, "get_financial") {
-				s -= 1000 // single-record tools must NOT be offered for counting
-			}
-		}
-		// Partner search by name ("busca/encuentra/dame + cliente/contacto"):
-		// find_partner wins; odoo_search/odoo_read must NOT be offered — the
-		// 1.2B model generates malformed domains like ["Acme Corporation"]
-		// instead of [["name","ilike","Acme"]].
-		findNameIntent := !countIntent && !balanceIntent &&
-			(strings.Contains(queryLower, "busca") ||
-				strings.Contains(queryLower, "buscar") ||
-				strings.Contains(queryLower, "encuentra") ||
-				strings.Contains(queryLower, "encontrar") ||
-				strings.Contains(queryLower, "localiza") ||
-				strings.Contains(queryLower, "localizar") ||
-				strings.Contains(queryLower, "dame") ||
-				strings.Contains(queryLower, "muestrame") ||
-				strings.Contains(queryLower, "muestra") ||
-				strings.Contains(queryLower, "quien es")) &&
-			(strings.Contains(queryLower, "cliente") ||
-				strings.Contains(queryLower, "contacto") ||
-				strings.Contains(queryLower, "partner") ||
-				strings.Contains(queryLower, "empresa"))
-		if findNameIntent {
-			if strings.Contains(lower, "find_partner") {
-				s += 8
-			}
-			if strings.Contains(lower, "odoo_search") || strings.Contains(lower, "odoo_read") {
-				s -= 8
-			}
-		}
-		// Helpdesk tools are ONLY for support/ticket intents; the 1.2B model
-		// over-indexes on them for partner/contact/creation queries.
-		helpdeskIntent := strings.Contains(queryLower, "helpdesk") ||
-			strings.Contains(queryLower, "ticket") ||
-			strings.Contains(queryLower, "soporte") ||
-			strings.Contains(queryLower, "incidencia") ||
-			strings.Contains(queryLower, "averia") ||
-			strings.Contains(queryLower, "no funciona") ||
-			strings.Contains(queryLower, "queja") ||
-			strings.Contains(queryLower, "reclamacion")
-		if !helpdeskIntent &&
-			(strings.Contains(lower, "helpdesk") || strings.Contains(lower, "draft_ticket")) {
-			s -= 1000
-		}
-		// OCR-invoice tools are ONLY for attached-document flows. Without a
-		// document/attachment intent they crowd out real create tools: their
-		// names contain "create" and steal the creation pairs.
-		if !ocrIntent && strings.Contains(lower, "ocr-") {
-			s -= 1000
-		}
-		// Balance/debt queries → AR/AP aging; summaries hallucinate partner_id=0.
-		if balanceIntent {
-			if strings.Contains(lower, "aging") || strings.Contains(lower, "ar_ap") {
-				s += 8
-			}
-			if strings.Contains(lower, "get_partner_summary") || strings.Contains(lower, "get_record_summary") ||
-				strings.Contains(lower, "get_sale_order_summary") || strings.Contains(lower, "get_invoice_summary") {
-				s -= 1000
-			}
-		}
 		return s
 	}
 
@@ -2792,4 +2684,37 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 		}
 	}
 	return out
+}
+// transientLLMRetryReason classifies an LLM error as transient (safe to retry)
+// using the provider error classifier first, then falling back to string patterns.
+// Returns the reason string and true if the error is transient.
+func transientLLMRetryReason(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+
+	// Use the provider error classifier for structured detection.
+	if failErr := providers.ClassifyError(err, "", ""); failErr != nil {
+		switch failErr.Reason {
+		case providers.FailoverTimeout:
+			if failErr.Status >= 500 {
+				return "server_error", true
+			}
+			return "timeout", true
+		case providers.FailoverRateLimit, providers.FailoverOverloaded:
+			return "rate_limit", true
+		}
+	}
+
+	// Fallback: string patterns for network errors not caught by the classifier.
+	errMsg := strings.ToLower(err.Error())
+	if strings.Contains(errMsg, "connection reset") ||
+		strings.Contains(errMsg, "connection refused") ||
+		strings.Contains(errMsg, "broken pipe") ||
+		strings.Contains(errMsg, "no such host") ||
+		strings.Contains(errMsg, "network is unreachable") {
+		return "network", true
+	}
+
+	return "", false
 }

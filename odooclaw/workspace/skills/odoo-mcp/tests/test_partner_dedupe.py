@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, call
 
 from odoo_mcp.core.client import OdooClient
+from odoo_mcp.security import policy
 from odoo_mcp.services.partner_service import find_partner, find_or_create_partner
 from odoo_mcp.tools.records import odoo_create
 from odoo_mcp.tools.partners import odoo_find_partner
@@ -10,6 +11,24 @@ from odoo_mcp.tools.partners import odoo_find_partner
 @pytest.fixture
 def mock_client():
     return MagicMock(spec=OdooClient)
+
+
+@pytest.fixture(autouse=True)
+def _reset_policy_cache():
+    """The dynamic allowlist queries ir.model through the guard; reset the global cache
+    so each test exercises the ir.model call deterministically."""
+    policy.reset_allowed_models_cache()
+    yield
+    policy.reset_allowed_models_cache()
+
+
+IR_MODEL_CALL = call(
+    "ir.model",
+    "search_read",
+    args=[["transient", "=", False]],
+    kwargs={"fields": ["model"]},
+    sender_id=5,
+)
 
 
 def test_find_partner_returns_existing_id_without_create(mock_client):
@@ -21,7 +40,7 @@ def test_find_partner_returns_existing_id_without_create(mock_client):
     mock_client.call_kw.assert_called_once_with(
         "res.partner",
         "search_read",
-        args=[[("name", "=", "Julio Iglesias")]],
+        args=[[("name", "=ilike", "Julio Iglesias")]],
         kwargs={"fields": ["id", "name", "email", "vat"], "limit": 1},
         sender_id=7,
     )
@@ -38,7 +57,7 @@ def test_find_partner_falls_back_to_fuzzy_name(mock_client):
             call(
                 "res.partner",
                 "search_read",
-                args=[[("name", "=", "Julio Iglesias")]],
+                args=[[("name", "=ilike", "Julio Iglesias")]],
                 kwargs={"fields": ["id", "name", "email", "vat"], "limit": 1},
                 sender_id=7,
             ),
@@ -70,7 +89,10 @@ def test_find_or_create_partner_reuses_exact_match(mock_client):
 
 
 def test_odoo_create_partner_reuses_existing_exact_match(mock_client):
-    mock_client.call_kw.return_value = [{"id": 179, "name": "Julio Iglesias"}]
+    mock_client.call_kw.side_effect = [
+        [{"model": "res.partner"}, {"model": "sale.order"}],  # ir.model dynamic allowlist
+        [{"id": 179, "name": "Julio Iglesias"}],
+    ]
 
     partner_id = odoo_create(
         mock_client,
@@ -80,17 +102,98 @@ def test_odoo_create_partner_reuses_existing_exact_match(mock_client):
     )
 
     assert partner_id == 179
-    mock_client.call_kw.assert_called_once_with(
+    mock_client.call_kw.assert_has_calls(
+        [
+            IR_MODEL_CALL,
+            call(
+                "res.partner",
+                "search_read",
+                args=[[("name", "=ilike", "Julio Iglesias")]],
+                kwargs={"fields": ["id", "name", "email", "vat"], "limit": 1},
+                sender_id=5,
+            ),
+        ]
+    )
+
+
+def test_odoo_create_partner_reuses_existing_name_different_case(mock_client):
+    mock_client.call_kw.side_effect = [
+        [{"model": "res.partner"}, {"model": "sale.order"}],
+        [{"id": 179, "name": "Acme SL"}],
+    ]
+
+    partner_id = odoo_create(
+        mock_client,
+        5,
         "res.partner",
-        "search_read",
-        args=[[("name", "=", "Julio Iglesias")]],
-        kwargs={"fields": ["id", "name", "email", "vat"], "limit": 1},
-        sender_id=5,
+        {"name": "acme sl"},
+    )
+
+    assert partner_id == 179
+    mock_client.call_kw.assert_has_calls(
+        [
+            IR_MODEL_CALL,
+            call(
+                "res.partner",
+                "search_read",
+                args=[[("name", "=ilike", "acme sl")]],
+                kwargs={"fields": ["id", "name", "email", "vat"], "limit": 1},
+                sender_id=5,
+            ),
+        ]
+    )
+
+
+def test_find_or_create_partner_reuses_existing_name_different_case(mock_client):
+    mock_client.call_kw.return_value = [{"id": 179, "name": "Acme SL"}]
+
+    partner_id = find_or_create_partner(mock_client, 5, "ACME SL")
+
+    assert partner_id == 179
+
+
+def test_find_existing_partner_id_does_not_match_substring_only(mock_client):
+    """=ilike must match the full normalized name, not partial substrings."""
+    mock_client.call_kw.side_effect = [
+        [{"model": "res.partner"}, {"model": "sale.order"}],  # ir.model dynamic allowlist
+        [],
+        180,
+    ]
+
+    partner_id = odoo_create(
+        mock_client,
+        5,
+        "res.partner",
+        {"name": "Acme SL"},
+    )
+
+    assert partner_id == 180
+    mock_client.call_kw.assert_has_calls(
+        [
+            IR_MODEL_CALL,
+            call(
+                "res.partner",
+                "search_read",
+                args=[[("name", "=ilike", "Acme SL")]],
+                kwargs={"fields": ["id", "name", "email", "vat"], "limit": 1},
+                sender_id=5,
+            ),
+            call(
+                "res.partner",
+                "create",
+                args=[{"name": "Acme SL"}],
+                sender_id=5,
+            ),
+        ]
     )
 
 
 def test_odoo_create_partner_creates_when_no_match(mock_client):
-    mock_client.call_kw.side_effect = [[], 180]
+    mock_client.call_kw.side_effect = [
+        [{"model": "res.partner"}, {"model": "sale.order"}],  # ir.model dynamic allowlist
+        [],
+        180,
+    ]
 
     partner_id = odoo_create(
         mock_client,
@@ -102,10 +205,11 @@ def test_odoo_create_partner_creates_when_no_match(mock_client):
     assert partner_id == 180
     mock_client.call_kw.assert_has_calls(
         [
+            IR_MODEL_CALL,
             call(
                 "res.partner",
                 "search_read",
-                args=[[("name", "=", "Julio Iglesias")]],
+                args=[[("name", "=ilike", "Julio Iglesias")]],
                 kwargs={"fields": ["id", "name", "email", "vat"], "limit": 1},
                 sender_id=5,
             ),

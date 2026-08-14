@@ -27,12 +27,15 @@ FROM python:3.11-slim
 # ffmpeg: required for audio processing
 # curl: for healthcheck
 # ca-certificates: for HTTPS
+# poppler-utils: pdftoppm — required by ocr-invoice MCP to render PDF pages
+#   to images before sending them to the local vision model
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     git \
     ca-certificates \
     tzdata \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -77,9 +80,6 @@ RUN chmod +x /usr/local/bin/ocr-invoice-mcp.py
 # 4-layer pipeline engine (OCR_MODE=pipeline): pipeline.py must sit next to the MCP script
 COPY workspace/skills/ocr-invoice/pipeline.py /usr/local/bin/pipeline.py
 RUN chmod +x /usr/local/bin/pipeline.py
-
-# poppler-utils: pdftoppm required by ocr-invoice MCP (PDF -> images for vision OCR)
-RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
 
 # Copy RLM-utils MCP server script (needs shebang for exec format)
 COPY workspace/skills/rlm-utils/server.py /usr/local/bin/rlm-utils-mcp.py
