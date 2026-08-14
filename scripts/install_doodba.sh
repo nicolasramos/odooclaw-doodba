@@ -278,26 +278,47 @@ phase_configure() {
   log "  Admin password (input hidden):"
   CFG_ODOO_PASS=$(prompt_password "  Password")
 
+  # --- Local AI runtime (llama.cpp / MLX + OdooClaw models) ---
+  log ""
+  log "Local AI runtime (llama.cpp on Linux / oMLX on Apple Silicon):"
+  log "  Installs the inference servers + downloads the OdooClaw models"
+  log "  from HuggingFace (odooclaw-light-1.2b + odooclaw-vision)."
+  log "  The gateway will point to your own hardware — 100% local, no API keys."
+  if prompt_yesno "  Install local AI runtime (llama.cpp/MLX + models)?" "N"; then
+    CFG_LOCAL_AI=1
+  else
+    CFG_LOCAL_AI=0
+  fi
+
   # --- LLM Provider ---
   log ""
   log "LLM provider settings:"
-  log "  Supported: openai, anthropic, openrouter, groq, ollama, gemini"
-  CFG_LLM_PROVIDER=$(prompt_default "  Provider" "openai")
+  if [ "$CFG_LOCAL_AI" -eq 1 ]; then
+    log "  Local runtime selected — provider will be 'openai' pointing at"
+    log "  host.docker.internal:8082 (llama.cpp) / oMLX on Apple."
+    CFG_LLM_PROVIDER="openai"
+    CFG_LLM_MODEL="odooclaw-local"
+    CFG_LLM_API_BASE="http://host.docker.internal:8082/v1"
+    CFG_LLM_API_KEY="local"
+  else
+    log "  Supported: openai, anthropic, openrouter, groq, ollama, gemini"
+    CFG_LLM_PROVIDER=$(prompt_default "  Provider" "openai")
 
-  local default_model="gpt-4o-mini"
-  local default_base="https://api.openai.com/v1"
-  case "$CFG_LLM_PROVIDER" in
-    anthropic)   default_model="claude-sonnet-4-20250514"; default_base="https://api.anthropic.com" ;;
-    openrouter)  default_model="openai/gpt-4o-mini"; default_base="https://openrouter.ai/api/v1" ;;
-    groq)        default_model="llama-3.3-70b-versatile"; default_base="https://api.groq.com/openai/v1" ;;
-    ollama)      default_model="llama3"; default_base="http://host.docker.internal:11434/v1" ;;
-    gemini)      default_model="gemini-2.0-flash"; default_base="https://generativelanguage.googleapis.com/v1beta/openai" ;;
-  esac
+    local default_model="gpt-4o-mini"
+    local default_base="https://api.openai.com/v1"
+    case "$CFG_LLM_PROVIDER" in
+      anthropic)   default_model="claude-sonnet-4-20250514"; default_base="https://api.anthropic.com" ;;
+      openrouter)  default_model="openai/gpt-4o-mini"; default_base="https://openrouter.ai/api/v1" ;;
+      groq)        default_model="llama-3.3-70b-versatile"; default_base="https://api.groq.com/openai/v1" ;;
+      ollama)      default_model="llama3"; default_base="http://host.docker.internal:11434/v1" ;;
+      gemini)      default_model="gemini-2.0-flash"; default_base="https://generativelanguage.googleapis.com/v1beta/openai" ;;
+    esac
 
-  CFG_LLM_MODEL=$(prompt_default "  Model" "$default_model")
-  CFG_LLM_API_BASE=$(prompt_default "  API base URL" "$default_base")
-  log "  API key (input hidden):"
-  CFG_LLM_API_KEY=$(prompt_password "  API key")
+    CFG_LLM_MODEL=$(prompt_default "  Model" "$default_model")
+    CFG_LLM_API_BASE=$(prompt_default "  API base URL" "$default_base")
+    log "  API key (input hidden):"
+    CFG_LLM_API_KEY=$(prompt_password "  API key")
+  fi
 
   # --- Browser Copilot ---
   log ""
@@ -318,10 +339,38 @@ phase_configure() {
 }
 
 # ============================================================================
-# PHASE 5: Generate config files
+# PHASE 5: Local AI runtime (llama.cpp / MLX + OdooClaw models)
+# ============================================================================
+phase_local_ai() {
+  if [ "${CFG_LOCAL_AI:-0}" -ne 1 ]; then
+    return 0
+  fi
+  separator "Phase 5/7: Local AI runtime (DuCloud · JamaCP)"
+
+  log "Installing local inference stack — llama.cpp on Linux, oMLX/MLX on Apple."
+  log "Downloading OdooClaw models from HuggingFace (odooclaw-light-1.2b + vision)."
+
+  local setup_script="$TEMP_REPO/odooclaw/scripts/setup-local.sh"
+  if [ ! -f "$setup_script" ]; then
+    fail "setup-local.sh not found in cloned repo ($setup_script)"
+  fi
+
+  # Run the core installer: builds llama.cpp (Linux) or checks oMLX (Apple),
+  # downloads models, writes $HOME/.odooclaw/config.json (host-side reference).
+  bash "$setup_script"
+
+  ok "Local AI runtime installed (models in ~/.odooclaw/models)."
+  log "Start the servers after boot (or add to systemd/launchd):"
+  log "  Linux:  ~/.odooclaw/llama.cpp/build/bin/llama-server -m ~/.odooclaw/models/odooclaw-light-1.2b-ft-Q4_K_M.gguf --host 127.0.0.1 --port 8082 --ctx-size 4096 --spec-type ngram-mod --spec-ngram-mod-n-min 4 --spec-ngram-mod-n-max 16 --spec-ngram-mod-n-match 24"
+  log "  Apple:  omlx serve --model ~/.odooclaw/models/odooclaw-light-1.2b-ft-mlx --port 8082"
+  log "  Vision: llama-server -m ~/.odooclaw/models/odooclaw-vision-Q5_K_M.gguf --mmproj ~/.odooclaw/models/mmproj-odooclaw-vision-Q8_0.gguf --host 127.0.0.1 --port 8093"
+}
+
+# ============================================================================
+# PHASE 6: Generate config files
 # ============================================================================
 phase_generate_configs() {
-  separator "Phase 5/7: Generating configuration files"
+  separator "Phase 6/8: Generating configuration files"
 
   local env_file=".docker/odoo.env"
   local config_file="odooclaw/config/config.json"
@@ -339,6 +388,19 @@ phase_generate_configs() {
     fi
   else
     touch "$env_file"
+  fi
+
+  if [ "$CFG_LOCAL_AI" -eq 1 ]; then
+    # Local mode: llama.cpp/oMLX on the host, reached via host.docker.internal
+    CFG_LLM_API_BASE="http://host.docker.internal:8082/v1"
+    CFG_LLM_API_KEY="local"
+    # Also resolved into config.json (ocr-invoice MCP + vision)
+    VISION_API_BASE_CFG="http://host.docker.internal:8093/v1"
+    VISION_MODEL_CFG="odooclaw-vision"
+  else
+    # Cloud mode: vision follows the LLM provider (runtime env expansion)
+    VISION_API_BASE_CFG='${OPENAI_API_BASE}'
+    VISION_MODEL_CFG="gpt-4o-mini"
   fi
 
   {
@@ -373,6 +435,12 @@ phase_generate_configs() {
     echo "ODOOCLAW_REDIS_URL=redis://redis:6379/0"
     echo "ODOOCLAW_JOB_STORE=odoo"
     echo "ODOOCLAW_WORKSPACE_PATH=/home/odooclaw/.odooclaw/workspace"
+    if [ "$CFG_LOCAL_AI" -eq 1 ]; then
+      echo ""
+      echo "# Local vision / OCR (llama.cpp or oMLX on host, port 8093)"
+      echo "VISION_API_BASE=http://host.docker.internal:8093/v1"
+      echo "VISION_MODEL=odooclaw-vision"
+    fi
     if [ "$INSTALL_BROWSER_COPILOT" -eq 1 ]; then
       echo ""
       echo "# Browser Copilot"
@@ -452,8 +520,8 @@ phase_generate_configs() {
           "args": [],
           "env": {
             "PYTHONUNBUFFERED": "1",
-            "VISION_API_BASE": "\${OPENAI_API_BASE}",
-            "VISION_MODEL": "gpt-4o-mini",
+            "VISION_API_BASE": "${VISION_API_BASE_CFG}",
+            "VISION_MODEL": "${VISION_MODEL_CFG}",
             "OPENAI_API_KEY": "\${OPENAI_API_KEY}",
             "OCR_TIMEOUT_SECONDS": "240",
             "OCR_MAX_PAGES": "4",
@@ -479,10 +547,10 @@ CONFIGJSON
 }
 
 # ============================================================================
-# PHASE 6: Docker Compose setup
+# PHASE 7: Docker Compose setup
 # ============================================================================
 phase_docker_compose() {
-  separator "Phase 6/7: Docker Compose setup"
+  separator "Phase 7/8: Docker Compose setup"
 
   local compose_file="odooclaw.yaml"
   local has_yaml_include=0
@@ -531,6 +599,8 @@ services:
       - ODOOCLAW_CHANNELS_ODOO_ALLOW_FROM=${ODOOCLAW_CHANNELS_ODOO_ALLOW_FROM:-}
       - ODOOCLAW_CHANNELS_ODOO_ALLOW_GROUP_MENTIONS=${ODOOCLAW_CHANNELS_ODOO_ALLOW_GROUP_MENTIONS:-false}
       - ODOOCLAW_CHANNELS_ODOO_REASONING_CHANNEL_ID=${ODOOCLAW_CHANNELS_ODOO_REASONING_CHANNEL_ID:-}
+      - VISION_API_BASE=${VISION_API_BASE:-${OPENAI_API_BASE:-https://api.openai.com/v1}}
+      - VISION_MODEL=${VISION_MODEL:-gpt-4o-mini}
       - ODOOCLAW_REDIS_URL=redis://redis:6379/0
       - ODOOCLAW_JOB_STORE=odoo
     ports:
@@ -615,10 +685,10 @@ VOLUMES
 }
 
 # ============================================================================
-# PHASE 7: Post-install instructions
+# PHASE 8: Post-install instructions
 # ============================================================================
 phase_post_install() {
-  separator "Phase 7/7: Post-install steps"
+  separator "Phase 8/8: Post-install steps"
 
   echo ""
   printf "${BOLD}${GREEN}Installation complete!${RESET}\n\n"
@@ -638,8 +708,20 @@ phase_post_install() {
   printf "  ${BOLD}4. Test in Odoo Discuss:${RESET}\n"
   printf "     Open a conversation and type ${BOLD}@OdooClaw hello${RESET}\n\n"
 
+  if [ "$CFG_LOCAL_AI" -eq 1 ]; then
+    printf "  ${BOLD}5. Start the local inference servers (llama.cpp / oMLX):${RESET}\n"
+    printf "     Linux — chat + tools (ngram-mod n=16, +49% NRA-541):\n"
+    printf "       ~/.odooclaw/llama.cpp/build/bin/llama-server -m ~/.odooclaw/models/odooclaw-light-1.2b-ft-Q4_K_M.gguf --host 127.0.0.1 --port 8082 --ctx-size 4096 --spec-type ngram-mod --spec-ngram-mod-n-min 4 --spec-ngram-mod-n-max 16 --spec-ngram-mod-n-match 24\n"
+    printf "     Linux — vision/OCR:\n"
+    printf "       ~/.odooclaw/llama.cpp/build/bin/llama-server -m ~/.odooclaw/models/odooclaw-vision-Q5_K_M.gguf --mmproj ~/.odooclaw/models/mmproj-odooclaw-vision-Q8_0.gguf --host 127.0.0.1 --port 8093\n"
+    printf "     Apple Silicon — oMLX (MLX runtime, NEVER llama.cpp on Mac):\n"
+    printf "       omlx serve --model ~/.odooclaw/models/odooclaw-light-1.2b-ft-mlx --port 8082\n"
+    printf "       omlx serve --model ~/.odooclaw/models/odooclaw-vision-mlx   --port 8093\n"
+    printf "     The gateway container reaches them via host.docker.internal.\n\n"
+  fi
+
   if [ "$INSTALL_BROWSER_COPILOT" -eq 1 ]; then
-    printf "  ${BOLD}5. Browser Extension (optional):${RESET}\n"
+    printf "  ${BOLD}6. Browser Extension (optional):${RESET}\n"
     printf "     Load the extension from: ${BOLD}odooclaw/browser_extension/${RESET}\n"
     printf "     Open extension settings and set:\n"
     printf "       URL:   ${BOLD}http://127.0.0.1:8765${RESET}\n"
@@ -676,6 +758,7 @@ main() {
   phase_detect_version
   phase_clone_and_copy
   phase_configure
+  phase_local_ai
   phase_generate_configs
   phase_docker_compose
   phase_post_install
