@@ -691,8 +691,18 @@ def odoo_create_vendor_invoice(
         )
 
 
-if __name__ == "__main__":
-    mcp.run()
+@mcp.tool()
+def reset_allowed_models_cache() -> str:
+    """Reset the in-process allowlist cache for Odoo model access.
+
+    Called by the OdooClaw gateway (Go) when Odoo system events arrive at
+    /webhook/odoo/system (modules_changed / config_changed). Invalidates the
+    _client_cache so the next allowlist lookup re-reads ir.config_parameter.
+    """
+    from odoo_mcp.security.policy import reset_allowed_models_cache as _reset
+
+    _reset()
+    return "ok"
 
 
 @mcp.tool()
@@ -1947,3 +1957,7 @@ def odoo_batch_assist_report_migration(
             strict=strict,
             continue_on_error=continue_on_error,
         )
+
+
+if __name__ == "__main__":
+    mcp.run()
