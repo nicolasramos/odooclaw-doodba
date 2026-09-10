@@ -1178,12 +1178,26 @@ func (al *AgentLoop) runLLMIteration(
 		// Build tool definitions
 		providerToolDefs := agent.Tools.ToProviderDefs()
 
-		// Small local models (fine-tuned on ~5 tools per example) degrade with
-		// dozens of tools in context. Apply tool retrieval: keep only the top-K
-		// most relevant tools for the current user query.
-		if isLocalSmallModel(agent.Model) && len(providerToolDefs) > maxLocalToolsInPrompt {
+		// Tool retrieval: when the tool set exceeds the provider's limit,
+		// select only the top-K most relevant tools for the current user query.
+		// Small local models (fine-tuned on ~5 tools per example) need a very
+		// tight cap. Cloud models (OpenAI, Anthropic) have a hard ceiling of
+		// 128 tools — when OdooClaw exposes 133+ tools, cloud providers reject
+		// the request with "array too long". Use a larger top-N for cloud to
+		// preserve coverage while staying under the provider limit. The cloud
+		// cap is configurable per model (max_cloud_tools_in_prompt).
+		// Local small models are unaffected — their cap stays fixed at 5.
+		isLocal := isLocalSmallModel(agent.Model)
+		maxTools := maxCloudToolsInPrompt
+		if agent.MaxCloudToolsInPrompt != nil {
+			maxTools = *agent.MaxCloudToolsInPrompt
+		}
+		if isLocal {
+			maxTools = maxLocalToolsInPrompt
+		}
+		if maxTools > 0 && len(providerToolDefs) > maxTools {
 			query := lastUserMessageText(messages)
-			providerToolDefs = retrieveRelevantTools(providerToolDefs, query, maxLocalToolsInPrompt)
+			providerToolDefs = retrieveRelevantTools(providerToolDefs, query, maxTools)
 		}
 
 		// Log LLM request details
@@ -1537,6 +1551,9 @@ func (al *AgentLoop) runLLMIteration(
 			}
 			messages = append(messages, toolResultMsg)
 
+			// RLM auto-capture: store large tool outputs to context lake
+			al.rlmAutoCapture(agent, tc.Name, contentForLLM)
+
 			// Save tool result message to session
 			agent.Sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
 		}
@@ -1585,7 +1602,11 @@ func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, c
 
 // forceCompression aggressively reduces context when the limit is hit.
 // It drops the oldest 50% of messages (keeping system prompt and last user message).
+// When rlm-kernel is available, it snapshots the kernel before compression.
 func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) bool {
+	// RLM hook: snapshot kernel before compression
+	al.rlmSnapshotBeforeCompression(agent)
+
 	history := agent.Sessions.GetHistory(sessionKey)
 	newHistory, droppedCount, compressed := compressedHistory(history)
 	if !compressed {
@@ -1602,6 +1623,72 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) b
 		"new_count":    len(newHistory),
 	})
 	return true
+}
+
+// rlmSnapshotBeforeCompression snapshots the rlm-kernel before context compression.
+// This preserves the kernel namespace across compaction so the model can
+// continue working with persistent variables after history is trimmed.
+func (al *AgentLoop) rlmSnapshotBeforeCompression(agent *AgentInstance) {
+	// Check if rlm-kernel MCP server is available
+	mcpTools := agent.Tools.List()
+	hasRLMKernel := false
+	for _, name := range mcpTools {
+		if name == "rlm_snapshot" || name == "ipython" {
+			hasRLMKernel = true
+			break
+		}
+	}
+	if !hasRLMKernel {
+		return
+	}
+
+	// Try to call rlm_snapshot
+	snapshotTool, ok := agent.Tools.Get("rlm_snapshot")
+	if !ok || snapshotTool == nil {
+		return
+	}
+
+	result := snapshotTool.Execute(context.Background(), map[string]any{})
+	if result != nil && !result.IsError {
+		logger.Debug("RLM: kernel snapshot saved before compression")
+	} else {
+		logger.Debug("RLM: kernel snapshot skipped (kernel may not be running)")
+	}
+}
+
+// rlmAutoCapture stores large tool outputs to the context lake transparently.
+// When a tool returns output >10KB, it's automatically stored in the lake
+// so the model can reference it later without re-fetching.
+func (al *AgentLoop) rlmAutoCapture(agent *AgentInstance, toolName, content string) {
+	const autoCaptureThreshold = 10_000 // 10KB
+
+	if len(content) < autoCaptureThreshold {
+		return
+	}
+
+	// Check if rlm-kernel is available
+	storeTool, ok := agent.Tools.Get("rlm_store")
+	if !ok || storeTool == nil {
+		return
+	}
+
+	// Build key and tags
+	key := fmt.Sprintf("auto:%s:%d", toolName, len(content))
+	tags := []string{"auto-capture", fmt.Sprintf("tool:%s", toolName)}
+
+	result := storeTool.Execute(context.Background(), map[string]any{
+		"key":     key,
+		"content": content,
+		"tags":    tags,
+	})
+
+	if result != nil && !result.IsError {
+		logger.DebugCF("agent", "RLM: auto-captured tool output", map[string]any{
+			"tool":    toolName,
+			"key":     key,
+			"content_len": len(content),
+		})
+	}
 }
 
 // GetStartupInfo returns information about loaded tools and skills for logging.
@@ -2327,6 +2414,12 @@ func extractParentPeer(msg bus.InboundMessage) *routing.RoutePeer {
 // 5 tools listed per example; more tools cause hallucination.
 const maxLocalToolsInPrompt = 5
 
+// maxCloudToolsInPrompt caps how many tools are sent to cloud models
+// (OpenAI, Anthropic, etc.). Cloud providers have a hard limit of 128 tools;
+// OdooClaw exposes 133+ tools, so we cap at 64 to stay well under the limit
+// while preserving reasonable coverage.
+const maxCloudToolsInPrompt = 64
+
 // isLocalSmallModel reports whether the model name refers to a small local
 // fine-tuned model (llama.cpp/ollama) that needs tools injected as plain text
 // and a reduced tool set.
@@ -2685,6 +2778,7 @@ func retrieveRelevantTools(defs []providers.ToolDefinition, query string, k int)
 	}
 	return out
 }
+
 // transientLLMRetryReason classifies an LLM error as transient (safe to retry)
 // using the provider error classifier first, then falling back to string patterns.
 // Returns the reason string and true if the error is transient.
