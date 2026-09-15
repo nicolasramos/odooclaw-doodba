@@ -1,0 +1,113 @@
+# OdooClaw demo stack for Coolify - odooclaw.jjgestiones.es
+#
+# Self-contained compose (no `extends`, no external file references, no fixed
+# host ports) so Coolify can deploy it as a Docker Compose resource directly.
+#
+# Deliberately NOT based on prod.yaml / prod.coolify.yaml:
+#   - prod.yaml uses `extends: common.yaml` + `env_file: .docker/*.env`, and
+#     Coolify only copies the named compose file to the runtime directory, so
+#     those references would not resolve.
+#   - its labels hardcode `Host(`jjgestiones.es`)`, which would hijack traffic
+#     from the client's real Odoo.
+#
+# Domain routing is left to Coolify: it appends the Traefik/Caddy labels from the
+# resource's "Docker Compose domains" field (service `odoo` -> the public URL).
+
+services:
+  odoo:
+    build:
+      context: ./odoo
+      dockerfile: Dockerfile.coolify
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGUSER: odoo
+      PGPASSWORD: ${PGPASSWORD:-odoopassword}
+      PGDATABASE: ${ODOO_DB:-demo}
+      DB_FILTER: ^${ODOO_DB:-demo}$
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      INITIAL_LANG: es_ES
+      LIST_DB: "false"
+      ODOO_BUS_PUBLIC_SAMESITE_WS: 1
+      PROXY_MODE: "true"
+      # Shared secret for the module's protected endpoints. Must match the value
+      # the OdooClaw gateway sends in X-OdooClaw-Token.
+      ODOOCLAW_REPLY_TOKEN: ${ODOOCLAW_REPLY_TOKEN}
+    volumes:
+      - odoo_filestore:/var/lib/odoo
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8069"
+    # Demo data stays ON (no --without-demo) so the assistant has real customers,
+    # products, quotations and invoices to reason about.
+    command:
+      - odoo
+      - --database=demo
+      - --init=mail_bot_odooclaw,crm,sale_management,account,purchase,stock,contacts
+      - --db-filter=^demo$
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8069/web/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${ODOO_DB:-demo}
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: ${PGPASSWORD:-odoopassword}
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - odoo_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo -d ${ODOO_DB:-demo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - odoo_redis:/data
+
+  odooclaw:
+    build:
+      context: ./odooclaw
+      dockerfile: docker/Dockerfile.demo
+    restart: unless-stopped
+    environment:
+      # LLM: any OpenAI-compatible endpoint. Rendered into config.json at start.
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_BASE: ${OPENAI_API_BASE}
+      ODOOCLAW_MODEL: ${ODOOCLAW_MODEL}
+      # Must match Odoo's odooclaw.reply_token system parameter.
+      ODOOCLAW_REPLY_TOKEN: ${ODOOCLAW_REPLY_TOKEN}
+      # Odoo connection used by the odoo-mcp tools.
+      ODOO_URL: http://odoo:8069
+      ODOO_DB: ${ODOO_DB:-demo}
+      ODOO_USERNAME: ${ODOO_USERNAME:-admin}
+      ODOO_PASSWORD: ${ODOO_PASSWORD:-admin}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      NO_PROXY: localhost,127.0.0.1,odoo,redis,db
+    volumes:
+      - odooclaw_data:/home/odooclaw/.odooclaw
+    depends_on:
+      - odoo
+      - redis
+    expose:
+      - "18790"
+
+volumes:
+  odoo_filestore:
+  odoo_db:
+  odoo_redis:
+  odooclaw_data:

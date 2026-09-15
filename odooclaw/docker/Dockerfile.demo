@@ -1,0 +1,68 @@
+# OdooClaw gateway image - demo variant.
+#
+# Same two-stage shape as docker/Dockerfile, but scoped to what the client demo
+# actually exercises (Odoo Discuss agent + odoo-mcp ORM tools).
+#
+# Why a slimmer runtime than docker/Dockerfile:
+#   the official image installs openai-whisper, which drags in torch (~2.5GB) and
+#   makes a demo build slow and fragile. Voice/OCR are not part of this demo, so
+#   they are left out here. Re-add whisper-stt / ocr-invoice (and their apt deps
+#   ffmpeg + poppler-utils) if the demo needs voice or invoice scanning.
+
+# ============================================================
+# Stage 1: build the odooclaw binary
+# ============================================================
+FROM golang:1.25-alpine AS builder
+
+RUN apk add --no-cache git make
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN make build
+
+# ============================================================
+# Stage 2: runtime (Debian-based so AI wheels resolve cleanly)
+# ============================================================
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# odoo-mcp runs on the v1 MCP SDK: it imports `mcp.server.fastmcp`, which mcp 2.x
+# renamed (FastMCP -> MCPServer). `fastmcp>=0.1.0` in the skill's requirements is
+# not enough on its own, so pin the SDK below 2.
+RUN pip install --no-cache-dir \
+    "mcp<2" \
+    "pydantic>=2.0" \
+    requests
+
+RUN groupadd -r odooclaw && useradd -r -g odooclaw -u 1000 -m odooclaw
+
+COPY --from=builder /src/build/odooclaw /usr/local/bin/odooclaw
+
+# odoo-mcp server package (invoked as `python3 -m odoo_mcp.server`).
+COPY workspace/skills/odoo-mcp/src /opt/odoo-mcp
+ENV PYTHONPATH="/opt/odoo-mcp:${PYTHONPATH}"
+
+COPY docker/entrypoint-demo.sh /usr/local/bin/entrypoint-demo.sh
+RUN chmod +x /usr/local/bin/entrypoint-demo.sh \
+    && mkdir -p /home/odooclaw/.cache \
+    && chown -R odooclaw:odooclaw /home/odooclaw
+
+USER odooclaw
+WORKDIR /home/odooclaw
+
+RUN /usr/local/bin/odooclaw onboard
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
+  CMD curl -f http://localhost:18790/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-demo.sh"]

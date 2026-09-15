@@ -1,0 +1,31 @@
+# Coolify demo image for OdooClaw
+#
+# Lightweight alternative to the doodba onbuild image for a client-facing demo.
+#
+# Why not `odoo/Dockerfile` (doodba onbuild):
+#   the doodba onbuild layers use `--mount=type=cache`, which the Coolify builder
+#   rejects with "cannot mount from stage scratch" (see NRA-877). The doodba base
+#   is also heavy (wkhtmltopdf + chromium + full pip set), which turns a demo
+#   build into a 15+ minute, failure-prone job.
+#
+# Demo scope: Odoo 18 + the OdooClaw Discuss bridge (`mail_bot_odooclaw`).
+# No OCA aggregation, no client private addons - keep the demo build fast.
+#
+# Build context is ./odoo (see docker-compose.demo.yaml), so paths below are
+# relative to that directory.
+
+FROM odoo:18
+
+USER root
+
+# OdooClaw Discuss bridge: intercepts Discuss messages and posts the webhook.
+COPY custom/src/private/mail_bot_odooclaw /mnt/extra-addons/mail_bot_odooclaw
+COPY demo-entrypoint.sh /usr/local/bin/demo-entrypoint.sh
+
+RUN chown -R odoo:odoo /mnt/extra-addons \
+    && chmod -R u=rwX,go=rX /mnt/extra-addons \
+    && chmod +x /usr/local/bin/demo-entrypoint.sh
+
+USER odoo
+
+ENTRYPOINT ["/usr/local/bin/demo-entrypoint.sh"]
