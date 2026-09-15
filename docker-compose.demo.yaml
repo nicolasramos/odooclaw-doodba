@@ -30,6 +30,10 @@ services:
       LIST_DB: "false"
       ODOO_BUS_PUBLIC_SAMESITE_WS: 1
       PROXY_MODE: "true"
+      # Coolify's magic domain variable: declaring it makes Coolify create the
+      # SERVICE_FQDN_ODOO / SERVICE_URL_ODOO pair from the resource's
+      # "Docker Compose domains" value, which the labels below then consume.
+      SERVICE_URL_ODOO_8069: ""
       # Shared secret for the module's protected endpoints. Must match the value
       # the OdooClaw gateway sends in X-OdooClaw-Token.
       ODOOCLAW_REPLY_TOKEN: ${ODOOCLAW_REPLY_TOKEN}
@@ -40,6 +44,17 @@ services:
         condition: service_healthy
     expose:
       - "8069"
+    # Coolify injects SERVICE_FQDN_ODOO from the resource's "Docker Compose
+    # domains" entry. A compose service only gets a Traefik router if it declares
+    # its own labels, so the public hostname is wired explicitly here.
+    labels:
+      - coolify.managed=true
+      - traefik.enable=true
+      - traefik.http.routers.odooclaw-demo.rule=Host(`${SERVICE_FQDN_ODOO}`)
+      - traefik.http.routers.odooclaw-demo.entryPoints=https
+      - traefik.http.routers.odooclaw-demo.tls=true
+      - traefik.http.routers.odooclaw-demo.tls.certresolver=letsencrypt
+      - traefik.http.services.odooclaw-demo.loadbalancer.server.port=8069
     # Demo data stays ON (no --without-demo) so the assistant has real customers,
     # products, quotations and invoices to reason about.
     command:
