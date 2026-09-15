@@ -20,6 +20,11 @@ services:
       dockerfile: Dockerfile.coolify
     restart: unless-stopped
     environment:
+      # The official odoo:18 entrypoint derives the DB host from $HOST
+      # (`${HOST:=${PGHOST:=db}}`) and passes it as --db_host, so leaving HOST
+      # unset lets Coolify inject HOST=0.0.0.0 and Odoo then dials 0.0.0.0:5432.
+      # Pinning it to the service name keeps the connection pointed at `db`.
+      HOST: db
       PGHOST: db
       PGUSER: odoo
       PGPASSWORD: ${PGPASSWORD:-odoopassword}
