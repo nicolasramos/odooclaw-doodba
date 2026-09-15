@@ -40,7 +40,7 @@ cat > "${CONFIG_FILE}" <<JSON
       "model_name": "demo-model",
       "max_tokens": 4096,
       "temperature": 0.2,
-      "max_tool_iterations": 20
+      "max_tool_iterations": 50
     }
   },
   "model_list": [
