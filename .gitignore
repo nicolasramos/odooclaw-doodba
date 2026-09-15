@@ -36,6 +36,11 @@
 **/*credentials*.json
 **/*token*
 !/odooclaw/pkg/auth/token.go
+# The OdooClaw Discuss bridge ships a reply-token MODEL (not a secret). The
+# broad `**/*token*` rule above would silently drop it, leaving models/__init__.py
+# importing a missing module and Odoo failing with ImportError at registry load.
+!/odoo/custom/src/private/mail_bot_odooclaw/models/mail_odooclaw_reply_token.py
+!/odoo/custom/src/private/mail_bot_odooclaw/tests/test_mail_odooclaw_reply_token.py
 **/*.pem
 **/*.key
 
