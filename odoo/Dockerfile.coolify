@@ -28,4 +28,9 @@ RUN chown -R odoo:odoo /mnt/extra-addons \
 
 USER odoo
 
+# Restore the base image's CMD: declaring ENTRYPOINT resets the inherited CMD, and
+# without `odoo` here the official /entrypoint.sh has nothing to run and exits 1,
+# putting the container in a restart loop.
+CMD ["odoo"]
+
 ENTRYPOINT ["/usr/local/bin/demo-entrypoint.sh"]

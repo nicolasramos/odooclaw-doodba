@@ -62,11 +62,14 @@ services:
       - traefik.http.services.odooclaw-demo.loadbalancer.server.port=8069
     # Demo data stays ON (no --without-demo) so the assistant has real customers,
     # products, quotations and invoices to reason about.
+    # `odoo` only -- no `--init`: the demo database is initialised once by
+    # odoo/demo-entrypoint.sh. Passing `--init=...` here would re-import every demo
+    # dataset on each restart and redeploy, aborting the registry with errors such
+    # as "Cannot delete a purchase order line which is in state 'Purchase Order'".
+    # The command must stay explicit: with `command:` absent, Coolify/compose
+    # rewrites the service with an empty cmd and the official entrypoint exits 1.
     command:
       - odoo
-      - --database=demo
-      - --init=mail_bot_odooclaw,crm,sale_management,account,purchase,stock,contacts
-      - --db-filter=^demo$
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8069/web/health || exit 1"]
       interval: 15s

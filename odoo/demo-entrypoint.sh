@@ -1,34 +1,67 @@
 #!/bin/bash
 # Odoo demo entrypoint wrapper.
 #
-# Starts Odoo, then makes sure the OdooClaw shared secret is present in the
-# database, and keeps Odoo in the foreground.
+# Responsibilities:
+#   1. Initialise the demo database ONCE (Odoo modules + demo data).
+#   2. Make sure the OdooClaw shared secret is present in that database.
+#   3. Start Odoo normally and keep it in the foreground.
+#
+# Why init lives here instead of in the compose `command`:
+#   a `command: odoo --init=...` re-imports every demo dataset on each restart and
+#   redeploy. Re-importing on top of an existing database aborts the registry
+#   ("Cannot delete a purchase order line which is in state 'Purchase Order'"),
+#   so the app only survived its very first boot. Doing it here means the init
+#   runs when the marker table is empty and never again.
 #
 # Why the token is needed:
 #   mail_bot_odooclaw's protected endpoints (/odooclaw/call_kw_as_user and
 #   /odooclaw/reply) default-deny unless `odooclaw.reply_token` or
 #   `odooclaw.allowed_ips` is configured. OdooClaw's odoo-mcp client sends the
-#   token in the X-OdooClaw-Token header, so both sides must agree on the same
-#   value. Setting it at boot keeps the secret in Coolify's env vars instead of
-#   baked into the image.
-#
-# Ordering: the parameter is written once Odoo has created its schema, so this
-# works on a brand-new database too. Odoo is started in the background only for
-# that window and is then handed the foreground.
+#   token in the X-OdooClaw-Token header, so both sides must agree on the value.
 
 set -e
 
-if [ -n "${ODOOCLAW_REPLY_TOKEN:-}" ]; then
-    /entrypoint.sh "$@" &
-    ODOO_PID=$!
+DB="${PGDATABASE:-demo}"
+PSQL=(psql -h "${PGHOST:-db}" -U "${PGUSER:-odoo}" -d "$DB")
 
-    echo "[demo-odoo-init] waiting for Odoo schema to set odooclaw.reply_token"
+db_ready() {
+    PGPASSWORD="${PGPASSWORD:-odoopassword}" "${PSQL[@]}" -tAc "SELECT 1" >/dev/null 2>&1
+}
+
+schema_ready() {
+    PGPASSWORD="${PGPASSWORD:-odoopassword}" "${PSQL[@]}" -tAc \
+        "SELECT 1 FROM ir_module_module LIMIT 1" >/dev/null 2>&1
+}
+
+echo "[demo-odoo-init] waiting for PostgreSQL at ${PGHOST:-db}"
+for _ in $(seq 1 60); do
+    db_ready && break
+    sleep 2
+done
+
+# Initialise only when the OdooClaw bridge is not present yet.
+NEEDS_INIT=1
+if schema_ready; then
+    INSTALLED=$(PGPASSWORD="${PGPASSWORD:-odoopassword}" "${PSQL[@]}" -tAc \
+        "SELECT state FROM ir_module_module WHERE name = 'mail_bot_odooclaw'" 2>/dev/null | tr -d '[:space:]')
+    [ "$INSTALLED" = "installed" ] && NEEDS_INIT=0
+fi
+
+if [ "$NEEDS_INIT" = "1" ]; then
+    echo "[demo-odoo-init] initialising the demo database (modules + demo data)"
+    odoo --database="$DB" \
+         --init=mail_bot_odooclaw,crm,sale_management,account,purchase,stock,contacts \
+         --stop-after-init \
+         --db-filter="^$DB\$" &
+    INIT_PID=$!
+    wait "$INIT_PID" || echo "[demo-odoo-init] init exited non-zero; continuing"
+    echo "[demo-odoo-init] init finished"
+fi
+
+if [ -n "${ODOOCLAW_REPLY_TOKEN:-}" ]; then
     for _ in $(seq 1 150); do
-        if PGPASSWORD="${PGPASSWORD:-odoopassword}" psql -h "${PGHOST:-db}" \
-            -U "${PGUSER:-odoo}" -d "${PGDATABASE:-demo}" -tAc \
-            "SELECT 1 FROM ir_config_parameter LIMIT 1" >/dev/null 2>&1; then
-            PGPASSWORD="${PGPASSWORD:-odoopassword}" psql -h "${PGHOST:-db}" \
-                -U "${PGUSER:-odoo}" -d "${PGDATABASE:-demo}" -q -c \
+        if schema_ready; then
+            PGPASSWORD="${PGPASSWORD:-odoopassword}" "${PSQL[@]}" -q -c \
                 "INSERT INTO ir_config_parameter (key, value, create_date, write_date, create_uid, write_uid)
                  SELECT 'odooclaw.reply_token', '${ODOOCLAW_REPLY_TOKEN}', now(), now(), 1, 1
                  WHERE NOT EXISTS (SELECT 1 FROM ir_config_parameter WHERE key = 'odooclaw.reply_token');
@@ -39,9 +72,7 @@ if [ -n "${ODOOCLAW_REPLY_TOKEN:-}" ]; then
         fi
         sleep 2
     done
-
-    wait "$ODOO_PID"
-else
-    echo "[demo-odoo-init] ODOOCLAW_REPLY_TOKEN not set; starting Odoo directly"
-    exec /entrypoint.sh "$@"
 fi
+
+# Normal runtime: hand off to the official entrypoint (db args + wait-for-psql).
+exec /entrypoint.sh "$@"
