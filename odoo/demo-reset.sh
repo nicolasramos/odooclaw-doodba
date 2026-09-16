@@ -164,50 +164,61 @@ do_reset() {
         log "reset attempt $attempt/$MAX_ATTEMPTS ('$DB')"
         wait_for_db || return 1
         wait_for_odoo_http
-        terminate_connections "$DB"
-        sleep 3
 
+        # Never destroy the only copy before a replacement exists. The reset
+        # builds the new database under a scratch name and swaps it in, so a
+        # failure at any point leaves the demo serving the OLD database rather
+        # than no database at all. Dropping first is what took the production
+        # demo down: the drop succeeded and the re-create did not.
+        local staging="${DB}_reset_staging"
+        terminate_connections "$staging"
+        run_psql "DROP DATABASE IF EXISTS \"$staging\";" >/dev/null 2>&1
+
+        local err=""
         if [ "$(oid "$TEMPLATE")" = "1" ]; then
-            # Fast path: file-level copy of the pristine database.
-            #
-            # Terminate sessions on the TEMPLATE as well: PostgreSQL refuses
-            # CREATE DATABASE ... TEMPLATE while any session is connected to the
-            # source ("source database is being accessed by other users"). This
-            # bit the first production reset, where the sidecar's own template
-            # capture had left a connection behind.
-            #
-            # Capture stderr: a silent failure here is impossible to diagnose
-            # from the container logs, and this runs unattended.
-            local err
+            # Fast path: file-level copy of the pristine database. Sessions on
+            # the TEMPLATE must go too: PostgreSQL refuses
+            # CREATE DATABASE ... TEMPLATE while the source is in use.
             terminate_connections "$TEMPLATE"
             sleep 1
-            if err="$(run_psql "DROP DATABASE IF EXISTS \"$DB\";" 2>&1)" \
-               && err="$(run_psql "CREATE DATABASE \"$DB\" TEMPLATE \"$TEMPLATE\";" 2>&1)"; then
-                log "reset completed from template"
-                return 0
+            if ! err="$(run_psql "CREATE DATABASE \"$staging\" TEMPLATE \"$TEMPLATE\";" 2>&1)"; then
+                log "WARNING: could not stage the reset from the template: $(echo "$err" | tr '\n' ' ' | cut -c1-250)"
+                attempt=$((attempt + 1)); sleep 10; continue
             fi
-            log "WARNING: template reset failed (attempt $attempt): $(echo "$err" | tr '\n' ' ' | cut -c1-300)"
         else
-            # Slow fallback: rebuild from scratch. Used only if the template was
-            # never captured (e.g. the sidecar started after the DB existed).
-            log "no template available; rebuilding '$DB' from scratch"
-            if "${PSQL[@]}" -c "DROP DATABASE IF EXISTS \"$DB\";" >/dev/null 2>&1; then
-                sleep 3
-                # Run as the Odoo user: it writes into the filestore, and
-                # root-owned files there would break the web container.
-                if as_odoo odoo --database="$DB" \
-                        --init="${ODOO_INIT_MODULES:-mail_bot_odooclaw,crm,sale_management,account,purchase,stock,contacts}" \
-                        --stop-after-init --no-http >/dev/null 2>&1; then
-                    log "reset completed by re-init"
-                    ensure_template
-                    return 0
-                fi
+            # Slow fallback: rebuild from scratch. Only used when the template
+            # was never captured (e.g. the sidecar started after the DB existed).
+            log "no template available; rebuilding from scratch"
+            if ! err="$(run_psql "CREATE DATABASE \"$staging\";" 2>&1)"; then
+                log "WARNING: could not create the staging database: $(echo "$err" | tr '\n' ' ' | cut -c1-250)"
+                attempt=$((attempt + 1)); sleep 10; continue
             fi
-            log "WARNING: re-init failed (attempt $attempt)"
+            # Run as the Odoo user: it writes into the filestore, and
+            # root-owned files there would break the web container.
+            if ! err="$(as_odoo odoo --database="$staging" \
+                    --init="${ODOO_INIT_MODULES:-mail_bot_odooclaw,crm,sale_management,account,purchase,stock,contacts}" \
+                    --stop-after-init --no-http 2>&1)"; then
+                log "WARNING: re-init into staging failed: $(echo "$err" | tr '\n' ' ' | cut -c1-250)"
+                run_psql "DROP DATABASE IF EXISTS \"$staging\";" >/dev/null 2>&1
+                attempt=$((attempt + 1)); sleep 10; continue
+            fi
+            # Refresh the template so future resets take the fast path.
+            run_psql "DROP DATABASE IF EXISTS \"$TEMPLATE\";" >/dev/null 2>&1
+            run_psql "CREATE DATABASE \"$TEMPLATE\" TEMPLATE \"$staging\";" >/dev/null 2>&1 || true
         fi
 
-        attempt=$((attempt + 1))
-        sleep 10
+        # The staging database is ready. Swap it in: this is the only window
+        # where the demo has no database, and it lasts one statement.
+        terminate_connections "$DB"
+        sleep 1
+        if ! err="$(run_psql "DROP DATABASE IF EXISTS \"$DB\";" 2>&1)" \
+           || ! err="$(run_psql "ALTER DATABASE \"$staging\" RENAME TO \"$DB\";" 2>&1)"; then
+            log "ERROR: could not swap in the reset database: $(echo "$err" | tr '\n' ' ' | cut -c1-250)"
+            attempt=$((attempt + 1)); sleep 10; continue
+        fi
+
+        log "reset completed from template"
+        return 0
     done
     log "ERROR: reset failed after $MAX_ATTEMPTS attempts; the demo keeps its current data"
     return 1
