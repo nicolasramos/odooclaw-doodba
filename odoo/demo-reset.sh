@@ -169,9 +169,18 @@ do_reset() {
 
         if [ "$(oid "$TEMPLATE")" = "1" ]; then
             # Fast path: file-level copy of the pristine database.
+            #
+            # Terminate sessions on the TEMPLATE as well: PostgreSQL refuses
+            # CREATE DATABASE ... TEMPLATE while any session is connected to the
+            # source ("source database is being accessed by other users"). This
+            # bit the first production reset, where the sidecar's own template
+            # capture had left a connection behind.
+            #
             # Capture stderr: a silent failure here is impossible to diagnose
             # from the container logs, and this runs unattended.
             local err
+            terminate_connections "$TEMPLATE"
+            sleep 1
             if err="$(run_psql "DROP DATABASE IF EXISTS \"$DB\";" 2>&1)" \
                && err="$(run_psql "CREATE DATABASE \"$DB\" TEMPLATE \"$TEMPLATE\";" 2>&1)"; then
                 log "reset completed from template"
