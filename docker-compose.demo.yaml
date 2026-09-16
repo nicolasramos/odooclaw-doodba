@@ -69,10 +69,20 @@ services:
     # odoo/demo-entrypoint.sh. Passing `--init=...` here would re-import every demo
     # dataset on each restart and redeploy, aborting the registry with errors such
     # as "Cannot delete a purchase order line which is in state 'Purchase Order'".
+    #
+    # `--db-filter` is REQUIRED, not cosmetic. Odoo resolves the database for a
+    # request without a session by falling back to "the only database" (monodb).
+    # The reset sidecar adds a second database (`<db>_template`), which breaks
+    # that fallback: the gateway's session-less POST /odooclaw/reply then resolves
+    # no database and Odoo answers 404, silently killing every bot reply. The
+    # filter keeps the template invisible to Odoo - and to visitors, who
+    # otherwise could see and drop it from the database selector.
+    #
     # The command must stay explicit: with `command:` absent, Coolify/compose
     # rewrites the service with an empty cmd and the official entrypoint exits 1.
     command:
       - odoo
+      - --db-filter=^${ODOO_DB:-demo}$
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8069/web/health || exit 1"]
       interval: 15s
