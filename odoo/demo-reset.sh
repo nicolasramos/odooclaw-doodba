@@ -93,6 +93,11 @@ write_schedule() {
 
 db_ready() { "${PSQL[@]}" -tAc "SELECT 1" >/dev/null 2>&1; }
 
+# Run a statement against the admin database, returning its output. Used where
+# the caller needs the error text (stderr is otherwise swallowed by 2>&1 on a
+# successful no-op and the real cause is lost).
+run_psql() { "${PSQL[@]}" -c "$1"; }
+
 oid() {
     "${PSQL[@]}" -tAc "SELECT 1 FROM pg_database WHERE datname = '$1'" 2>/dev/null | tr -d '[:space:]'
 }
@@ -164,12 +169,15 @@ do_reset() {
 
         if [ "$(oid "$TEMPLATE")" = "1" ]; then
             # Fast path: file-level copy of the pristine database.
-            if "${PSQL[@]}" -c "DROP DATABASE IF EXISTS \"$DB\";" >/dev/null 2>&1 \
-               && "${PSQL[@]}" -c "CREATE DATABASE \"$DB\" TEMPLATE \"$TEMPLATE\";" >/dev/null 2>&1; then
+            # Capture stderr: a silent failure here is impossible to diagnose
+            # from the container logs, and this runs unattended.
+            local err
+            if err="$(run_psql "DROP DATABASE IF EXISTS \"$DB\";" 2>&1)" \
+               && err="$(run_psql "CREATE DATABASE \"$DB\" TEMPLATE \"$TEMPLATE\";" 2>&1)"; then
                 log "reset completed from template"
                 return 0
             fi
-            log "WARNING: template reset failed (attempt $attempt)"
+            log "WARNING: template reset failed (attempt $attempt): $(echo "$err" | tr '\n' ' ' | cut -c1-300)"
         else
             # Slow fallback: rebuild from scratch. Used only if the template was
             # never captured (e.g. the sidecar started after the DB existed).
