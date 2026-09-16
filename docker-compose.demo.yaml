@@ -44,6 +44,9 @@ services:
       ODOOCLAW_REPLY_TOKEN: ${ODOOCLAW_REPLY_TOKEN}
     volumes:
       - odoo_filestore:/var/lib/odoo
+      # Read-only view of the reset schedule, so the web client can show the
+      # countdown to the next reset. The reset sidecar owns the file.
+      - demo_shared:/shared:ro
     depends_on:
       db:
         condition: service_healthy
@@ -100,6 +103,44 @@ services:
     volumes:
       - odoo_redis:/data
 
+  # Automatic demo reset. The demo is public, so visitors change the admin
+  # password and edit data; this restores the pristine dataset on a schedule so
+  # nobody has to do it by hand. See odoo/demo-reset.sh for the full rationale.
+  #
+  # Runs the same image as `odoo` (one build) but with the reset script as its
+  # entrypoint. Kept out of the `odoo` container on purpose: a reset drops and
+  # recreates the database underneath the running web process, and that must not
+  # be able to take the web process down.
+  demo-reset:
+    build:
+      context: ./odoo
+      dockerfile: Dockerfile.coolify
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/demo-reset.sh"]
+    environment:
+      ODOO_DB: ${ODOO_DB:-demo}
+      PGHOST: db
+      PGUSER: odoo
+      PGPASSWORD: ${PGPASSWORD:-odoopassword}
+      ODOO_INIT_MODULES: ${ODOO_INIT_MODULES:-mail_bot_odooclaw,crm,sale_management,account,purchase,stock,contacts}
+      # Hours between resets. 0 disables it.
+      RESET_INTERVAL_HOURS: ${RESET_INTERVAL_HOURS:-24}
+      # Reset immediately on boot as well as on the interval.
+      RESET_ON_START: ${RESET_ON_START:-false}
+      # Grace period after boot before the first scheduled reset, so a redeploy
+      # doesn't wipe the database under someone mid-demo.
+      RESET_GRACE_SECONDS: ${RESET_GRACE_SECONDS:-300}
+      DEMO_SCHEDULE_FILE: /shared/demo_schedule.json
+      ODOO_HEALTH_URL: http://odoo:8069/web/health
+    volumes:
+      # Publish the reset schedule so the web client can show a countdown.
+      - demo_shared:/shared
+    depends_on:
+      db:
+        condition: service_healthy
+      odoo:
+        condition: service_started
+
   odooclaw:
     build:
       context: ./odooclaw
@@ -134,3 +175,4 @@ volumes:
   odoo_db:
   odoo_redis:
   odooclaw_data:
+  demo_shared:

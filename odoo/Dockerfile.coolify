@@ -21,10 +21,14 @@ USER root
 # OdooClaw Discuss bridge: intercepts Discuss messages and posts the webhook.
 COPY custom/src/private/mail_bot_odooclaw /mnt/extra-addons/mail_bot_odooclaw
 COPY demo-entrypoint.sh /usr/local/bin/demo-entrypoint.sh
+# Periodic demo reset. It runs as its own service (see docker-compose.demo.yaml)
+# but shares this image so there is a single build, and so `odoo` is on PATH for
+# the re-init fallback.
+COPY demo-reset.sh /usr/local/bin/demo-reset.sh
 
 RUN chown -R odoo:odoo /mnt/extra-addons \
     && chmod -R u=rwX,go=rX /mnt/extra-addons \
-    && chmod +x /usr/local/bin/demo-entrypoint.sh
+    && chmod +x /usr/local/bin/demo-entrypoint.sh /usr/local/bin/demo-reset.sh
 
 USER odoo
 

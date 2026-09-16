@@ -2,6 +2,7 @@ from odoo import http, SUPERUSER_ID
 from werkzeug.exceptions import HTTPException
 from odoo.http import request
 import json
+import time
 from markupsafe import Markup
 
 from ..utils.markdown_html import markdown_to_safe_html
@@ -228,3 +229,49 @@ class OdooClawController(http.Controller):
             if isinstance(e, (http.Response, HTTPException)):
                 raise
             return security.log_exception(security._logger, "call_kw_as_user error")
+
+    @http.route(
+        "/odooclaw/demo_status", type="http", auth="public", methods=["GET"], csrf=False
+    )
+    def odooclaw_demo_status(self, **kwargs):
+        """Report when the public demo database will next be reset.
+
+        The demo is public, so the database is wiped and rebuilt from a pristine
+        template on a schedule (see odoo/demo-reset.sh). Visitors should be able
+        to see that up front rather than be surprised mid-session, so the web
+        client polls this and shows a countdown.
+
+        Deliberately public and read-only: it exposes no data, only the timer.
+        The schedule itself is written by the reset sidecar into a shared volume;
+        if that file is missing (older deployment, reset disabled) this reports
+        `available: false` instead of failing.
+        """
+        import os
+
+        schedule_path = os.environ.get(
+            "DEMO_SCHEDULE_FILE", "/shared/demo_schedule.json"
+        )
+        payload = {"available": False, "interval_hours": 0, "source": schedule_path}
+        try:
+            with open(schedule_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            now = int(time.time())
+            next_epoch = int(data.get("next_reset_epoch") or 0)
+            payload.update(
+                {
+                    "available": next_epoch > 0,
+                    "interval_hours": data.get("interval_hours", 0),
+                    "status": data.get("status", ""),
+                    "last_reset_epoch": int(data.get("last_reset_epoch") or 0),
+                    "next_reset_epoch": next_epoch,
+                    "seconds_until_reset": max(0, next_epoch - now) if next_epoch else 0,
+                    "server_time_epoch": now,
+                }
+            )
+        except FileNotFoundError:
+            # Reset sidecar not deployed or not started yet: not an error.
+            payload["status"] = "unknown"
+        except Exception:
+            security._logger.exception("could not read the demo reset schedule")
+            payload["status"] = "error"
+        return request.make_json_response(payload)
