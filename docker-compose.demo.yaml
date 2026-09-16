@@ -117,6 +117,11 @@ services:
       dockerfile: Dockerfile.coolify
     restart: unless-stopped
     entrypoint: ["/usr/local/bin/demo-reset.sh"]
+    # Docker creates the shared volume root-owned. Running as root here lets the
+    # sidecar take ownership of it and write the schedule file; the Odoo
+    # container only reads that file. `odoo` itself is always invoked through
+    # as_odoo() so it never leaves root-owned files in the filestore.
+    user: root
     environment:
       ODOO_DB: ${ODOO_DB:-demo}
       PGHOST: db

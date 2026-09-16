@@ -59,6 +59,27 @@ SCHEDULE_FILE="${DEMO_SCHEDULE_FILE:-/shared/demo_schedule.json}"
 
 log() { echo "[demo-reset] $(date -u '+%Y-%m-%dT%H:%M:%SZ') $*"; }
 
+# Drop privileges for anything that runs `odoo`: this sidecar runs as root (it
+# needs to own the shared volume), but Odoo must not create root-owned files in
+# the filestore or the web container would lose access to them.
+as_odoo() {
+    if [ "$(id -u)" = "0" ] && command -v runuser >/dev/null 2>&1; then
+        runuser -u "${ODOO_OS_USER:-odoo}" -- "$@"
+    else
+        "$@"
+    fi
+}
+
+# The shared volume is created by Docker as root. When running as root, hand it
+# to the Odoo user so both containers can read the schedule file.
+prepare_shared_dir() {
+    local dir
+    dir="$(dirname "$SCHEDULE_FILE")"
+    [ "$(id -u)" = "0" ] || return 0
+    mkdir -p "$dir" 2>/dev/null || return 0
+    chown -R "${ODOO_OS_USER:-odoo}" "$dir" 2>/dev/null || true
+}
+
 # Publish the schedule both containers can see: when the next reset is due, how
 # often it runs, and when it last completed.
 write_schedule() {
@@ -155,7 +176,9 @@ do_reset() {
             log "no template available; rebuilding '$DB' from scratch"
             if "${PSQL[@]}" -c "DROP DATABASE IF EXISTS \"$DB\";" >/dev/null 2>&1; then
                 sleep 3
-                if odoo --database="$DB" \
+                # Run as the Odoo user: it writes into the filestore, and
+                # root-owned files there would break the web container.
+                if as_odoo odoo --database="$DB" \
                         --init="${ODOO_INIT_MODULES:-mail_bot_odooclaw,crm,sale_management,account,purchase,stock,contacts}" \
                         --stop-after-init --no-http >/dev/null 2>&1; then
                     log "reset completed by re-init"
@@ -174,6 +197,11 @@ do_reset() {
 }
 
 log "starting (interval=${INTERVAL_HOURS}h, on_start=${ON_START}, db=$DB, template=$TEMPLATE)"
+
+# The sidecar runs as root (see compose `user: root`) so it can own the shared
+# volume Docker creates root-owned. The file it writes is world-readable, which
+# is all the Odoo container needs since it only reads it.
+prepare_shared_dir
 
 if [ "$INTERVAL_HOURS" = "0" ]; then
     log "RESET_INTERVAL_HOURS=0 -> automatic reset disabled"
