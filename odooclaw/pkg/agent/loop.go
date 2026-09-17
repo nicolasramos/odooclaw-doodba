@@ -69,6 +69,21 @@ type processOptions struct {
 
 const defaultResponse = "I've completed processing but have no response to give. Increase `max_tool_iterations` in config.json."
 
+// maxRepeatedToolCalls bounds how many times the exact same (tool, arguments)
+// pair may be executed in a single turn.
+//
+// Small local models get stuck re-issuing one call when that call keeps
+// failing: a schema mismatch or a bad model name makes the tool return an
+// error, and the model retries the identical call instead of changing
+// approach. Observed with the 4B model in the OdooClaw demo, which hammered
+// `odoo_count` with the same arguments until every iteration was gone and the
+// user got the useless defaultResponse above.
+//
+// Past this bound the call is not executed again and the model is told, in the
+// tool-result slot, that repeating it is pointless - which reliably makes it
+// stop and answer.
+const maxRepeatedToolCalls = 3
+
 func NewAgentLoop(
 	cfg *config.Config,
 	msgBus *bus.MessageBus,
@@ -1165,6 +1180,10 @@ func (al *AgentLoop) runLLMIteration(
 	iteration := 0
 	var finalContent string
 
+	// Fingerprint -> how many times this exact (tool, arguments) call has been
+	// issued in this turn. See maxRepeatedToolCalls.
+	toolCallCounts := make(map[string]int)
+
 	for iteration < agent.MaxIterations {
 		iteration++
 
@@ -1480,6 +1499,34 @@ func (al *AgentLoop) runLLMIteration(
 							"content_len": len(result.ForUser),
 						})
 				}
+			}
+
+			// Short-circuit a call the model keeps repeating verbatim. Executing
+			// it again cannot help - it already failed the same way - and on a
+			// small local model it is the difference between answering and
+			// burning every remaining iteration. Answering the model in the
+			// tool-result slot is what breaks the loop: it sees "you already
+			// asked this" and moves on.
+			fingerprint := tc.Name + "\x00" + string(argsJSON)
+			toolCallCounts[fingerprint]++
+			if toolCallCounts[fingerprint] > maxRepeatedToolCalls {
+				logger.WarnCF("agent", "Repeated identical tool call; not executing again", map[string]any{
+					"agent_id":  agent.ID,
+					"tool":      tc.Name,
+					"iteration": iteration,
+					"count":     toolCallCounts[fingerprint],
+				})
+				messages = append(messages, providers.Message{
+					Role:       "tool",
+					ToolCallID: tc.ID,
+					Content: fmt.Sprintf(
+						"You have already called %s with these exact arguments %d times and "+
+							"the result does not change. Do not call it again. Answer the "+
+							"user now with what you know, or explain briefly that you "+
+							"could not retrieve it.",
+						tc.Name, toolCallCounts[fingerprint]-1),
+				})
+				continue
 			}
 
 			toolResult := agent.Tools.ExecuteWithContext(

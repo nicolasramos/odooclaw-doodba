@@ -42,6 +42,13 @@ services:
       # Shared secret for the module's protected endpoints. Must match the value
       # the OdooClaw gateway sends in X-OdooClaw-Token.
       ODOOCLAW_REPLY_TOKEN: ${ODOOCLAW_REPLY_TOKEN}
+      # Public demo accounts. DEMO_USER_* creates the limited login visitors
+      # get; ADMIN_PASSWORD is re-applied on every boot and every reset so a
+      # visitor changing it cannot lock the demo down.
+      DEMO_USER_ENABLED: ${DEMO_USER_ENABLED:-true}
+      DEMO_USER_LOGIN: ${DEMO_USER_LOGIN:-demo}
+      DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-demo}
+      DEMO_USER_NAME: ${DEMO_USER_NAME:-Demo (invitado)}
     volumes:
       - odoo_filestore:/var/lib/odoo
       # Read-only view of the reset schedule, so the web client can show the
@@ -147,6 +154,15 @@ services:
       RESET_GRACE_SECONDS: ${RESET_GRACE_SECONDS:-300}
       DEMO_SCHEDULE_FILE: /shared/demo_schedule.json
       ODOO_HEALTH_URL: http://odoo:8069/web/health
+      # Account provisioning after each reset. The reset replaces the database
+      # wholesale, so the demo login and the admin password would otherwise
+      # revert to whatever the template holds - and a visitor's password change
+      # would survive the very reset meant to undo it.
+      DEMO_USER_ENABLED: ${DEMO_USER_ENABLED:-true}
+      DEMO_USER_LOGIN: ${DEMO_USER_LOGIN:-demo}
+      DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-demo}
+      DEMO_USER_NAME: ${DEMO_USER_NAME:-Demo (invitado)}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
     volumes:
       # Publish the reset schedule so the web client can show a countdown.
       - demo_shared:/shared

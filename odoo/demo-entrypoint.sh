@@ -85,6 +85,7 @@ if [ "${DEMO_USER_ENABLED:-true}" = "true" ]; then
             if DEMO_USER_LOGIN="${DEMO_USER_LOGIN:-demo}" \
                DEMO_USER_PASSWORD="${DEMO_USER_PASSWORD:-demo}" \
                DEMO_USER_NAME="${DEMO_USER_NAME:-Demo (invitado)}" \
+               ADMIN_PASSWORD="${ADMIN_PASSWORD:-}" \
                odoo shell --database="$DB" --no-http --db-filter="^$DB\$" \
                     < /usr/local/bin/demo_user.py 2>&1 | tail -3; then
                 echo "[demo-odoo-init] demo login ready"

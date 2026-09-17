@@ -158,6 +158,40 @@ ensure_template() {
     return 1
 }
 
+# Re-apply the demo accounts to a freshly restored database.
+#
+# The reset replaces the database wholesale, so anything the entrypoint wrote at
+# boot - the demo login and the admin password - is overwritten by whatever the
+# template held. Without this, a visitor changing the admin password or the demo
+# user's groups would keep that change across the very reset meant to undo it.
+#
+# Best-effort by design: if provisioning fails the demo still serves, and the
+# next boot or reset retries. Failing the reset over it would take the demo down
+# for a cosmetic problem.
+provision_accounts() {
+    local target="$1"
+    [ "${DEMO_USER_ENABLED:-true}" = "true" ] || return 0
+    if [ ! -f /usr/local/bin/demo_user.py ]; then
+        log "WARNING: demo_user.py not present; skipping account provisioning"
+        return 0
+    fi
+
+    log "re-applying demo accounts on '$target'"
+    local err=""
+    if err="$(DEMO_USER_LOGIN="${DEMO_USER_LOGIN:-demo}" \
+               DEMO_USER_PASSWORD="${DEMO_USER_PASSWORD:-demo}" \
+               DEMO_USER_NAME="${DEMO_USER_NAME:-Demo (invitado)}" \
+               ADMIN_PASSWORD="${ADMIN_PASSWORD:-}" \
+               as_odoo odoo shell --database="$target" --no-http \
+               --db-filter="^$target\$" < /usr/local/bin/demo_user.py 2>&1)"; then
+        log "demo accounts re-applied"
+        echo "$err" | grep -E '^\[demo-user\]' | sed 's/^/  /' || true
+    else
+        log "WARNING: could not re-apply demo accounts: $(echo "$err" | tr '\n' ' ' | cut -c1-250)"
+    fi
+    return 0
+}
+
 do_reset() {
     local attempt=1
     while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
@@ -202,10 +236,21 @@ do_reset() {
                 run_psql "DROP DATABASE IF EXISTS \"$staging\";" >/dev/null 2>&1
                 attempt=$((attempt + 1)); sleep 10; continue
             fi
-            # Refresh the template so future resets take the fast path.
-            run_psql "DROP DATABASE IF EXISTS \"$TEMPLATE\";" >/dev/null 2>&1
-            run_psql "CREATE DATABASE \"$TEMPLATE\" TEMPLATE \"$staging\";" >/dev/null 2>&1 || true
+            # The template refresh happens after provisioning, below, so the
+            # template also carries the demo accounts and the fast path stays
+            # fast.
         fi
+
+        # Provision the accounts INTO the staging database, before it goes live.
+        # A reset replaces the database wholesale, so the demo login and the
+        # admin password written at boot would be reverted to whatever the
+        # template holds - i.e. a visitor's password change would survive the
+        # very reset meant to undo it. Doing it on staging (not after the swap)
+        # means a provisioning failure cannot leave the demo half-configured.
+        #
+        # Running it on every reset, rather than trusting the template to carry
+        # the accounts, also heals a template captured before this existed.
+        provision_accounts "$staging"
 
         # The staging database is ready. Swap it in: this is the only window
         # where the demo has no database, and it lasts one statement.

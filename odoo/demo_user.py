@@ -1,4 +1,5 @@
-"""Create (or refresh) the non-administrative demo login for the OdooClaw demo.
+"""Provision the OdooClaw demo accounts: the public `demo` login and the
+`admin` password.
 
 WHY THIS EXISTS
     The demo is public. Visitors should be able to open Discuss, talk to
@@ -18,6 +19,13 @@ WHAT IT CREATES
     including the people doing the demo. Losing data is covered by the reset;
     losing administrative access is covered here.
 
+IT ALSO RESETS THE ADMIN PASSWORD
+    The reset restores the database from a template, so a password a visitor
+    changed is reverted anyway - but only a template captured AFTER this ran
+    carries the intended one. Setting it here as well means the admin password
+    is deterministic: the same value every boot and every reset, which is what
+    makes it safe to hand out.
+
 WHY VIA `odoo shell` AND NOT RAW SQL
     An Odoo user is not one row: it needs a res.partner, hashed credentials, the
     implied-group expansion and the company links. Writing those by hand in SQL
@@ -25,9 +33,10 @@ WHY VIA `odoo shell` AND NOT RAW SQL
     Going through the ORM yields a user identical to one created in the UI.
 
 IDEMPOTENT
-    Safe to run on every boot: it updates the existing user rather than creating
-    a duplicate, and re-derives the group list each time, so a visitor who grants
-    themselves extra rights loses them at the next restart.
+    Safe to run on every boot AND after every reset: it updates the existing
+    user rather than creating a duplicate, and re-derives the group list each
+    time, so a visitor who grants themselves extra rights loses them at the next
+    restart or reset.
 
 Run as:  odoo shell --database=<db> --no-http < odoo/demo_user.py
 """
@@ -37,6 +46,7 @@ import os
 LOGIN = os.environ.get("DEMO_USER_LOGIN", "demo")
 PASSWORD = os.environ.get("DEMO_USER_PASSWORD", "demo")
 NAME = os.environ.get("DEMO_USER_NAME", "Demo (invitado)")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 env = env  # noqa: F821 - injected by `odoo shell`
 Users = env["res.users"].sudo()
@@ -98,7 +108,23 @@ assert user.has_group(required.id), (
 )
 
 env.cr.commit()
+
+# Reset the admin password too. A public demo means visitors will change it (or
+# lock the account out), and the reset restores from a template - so the value
+# only survives if it is written before the template is captured AND re-applied
+# after every reset. Doing both is what makes it stable enough to hand out.
+admin_note = ""
+if ADMIN_PASSWORD:
+    admin = env.ref("base.user_admin", raise_if_not_found=False)  # noqa: F821
+    if admin:
+        admin.sudo().write({"password": ADMIN_PASSWORD})
+        env.cr.commit()
+        admin_note = " | admin password reset"
+    else:
+        admin_note = " | WARNING: base.user_admin not found"
+        print("[demo-user] WARNING: base.user_admin not found; password not reset")
+
 print(
     f"[demo-user] '{LOGIN}' ready: internal user, no administrative groups "
-    f"(groups={user.groups_id.mapped('full_name')})"
+    f"(groups={user.groups_id.mapped('full_name')}){admin_note}"
 )
