@@ -166,9 +166,9 @@ ensure_template() {
 # the modules and accounts added afterwards would have to be re-applied on every
 # single reset, and the fast path would stop being fast.
 #
-# Built under a scratch name on purpose. Dropping the old template before a
-# replacement exists would leave the next reset with the slow re-init path if
-# the copy failed.
+# Built under a scratch name on purpose, and the template it replaces is moved
+# aside rather than dropped, so a failure at any point leaves a working template
+# in place. Losing it would send every later reset down the slow re-init path.
 refresh_template() {
     local source="$1"
     local fresh="${TEMPLATE}_new"
@@ -181,12 +181,33 @@ refresh_template() {
         run_psql "DROP DATABASE IF EXISTS \"$fresh\";" >/dev/null 2>&1
         return 0
     fi
-    terminate_connections "$TEMPLATE"
-    if ! run_psql "DROP DATABASE IF EXISTS \"$TEMPLATE\";" >/dev/null 2>&1 \
-       || ! run_psql "ALTER DATABASE \"$fresh\" RENAME TO \"$TEMPLATE\";" >/dev/null 2>&1; then
-        log "WARNING: could not swap in the fresh template; keeping the previous one"
+    # Move the current template aside instead of dropping it. If the rename below
+    # fails, it can still be put back; the window where no template exists under
+    # its own name is one statement long.
+    if [ "$(oid "$TEMPLATE")" = "1" ]; then
+        run_psql "DROP DATABASE IF EXISTS \"${TEMPLATE}_old\";" >/dev/null 2>&1
+        terminate_connections "$TEMPLATE"
+        if ! run_psql "ALTER DATABASE \"$TEMPLATE\" RENAME TO \"${TEMPLATE}_old\";" >/dev/null 2>&1; then
+            run_psql "DROP DATABASE IF EXISTS \"$fresh\";" >/dev/null 2>&1
+            log "WARNING: could not move the current template aside; kept it as-is"
+            return 0
+        fi
+    fi
+    terminate_connections "$fresh"
+    if ! run_psql "ALTER DATABASE \"$fresh\" RENAME TO \"$TEMPLATE\";" >/dev/null 2>&1; then
+        # The fresh copy is fine but could not take the name. Put the old one
+        # back: losing the template would send every later reset down the slow
+        # re-init path, which is worse than carrying a stale one.
+        run_psql "ALTER DATABASE \"${TEMPLATE}_old\" RENAME TO \"$TEMPLATE\";" >/dev/null 2>&1 \
+            || log "WARNING: could not restore the previous template"
+        run_psql "DROP DATABASE IF EXISTS \"$fresh\";" >/dev/null 2>&1
+        log "WARNING: could not swap in the fresh template; kept the previous one"
         return 0
     fi
+    # Only now that the new template is in place is the old one expendable. It
+    # was renamed aside rather than dropped up front for exactly this reason.
+    terminate_connections "${TEMPLATE}_old"
+    run_psql "DROP DATABASE IF EXISTS \"${TEMPLATE}_old\";" >/dev/null 2>&1
     log "template '$TEMPLATE' refreshed from '$source'"
     return 0
 }
