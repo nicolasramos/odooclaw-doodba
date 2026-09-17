@@ -223,6 +223,17 @@ class OdooClawController(http.Controller):
                         result = result.ids
                 return request.make_json_response({"status": "ok", "result": result})
             except Exception as orm_error:
+                # Log the real exception before sanitizing the response. Without
+                # this the client only ever sees "Odoo ORM error" and the actual
+                # cause is unrecoverable from the logs - which is exactly how a
+                # 500 on search_read cost hours of guessing on the demo.
+                security._logger.exception(
+                    "call_kw_as_user ORM failure: model=%s method=%s user_id=%s: %s",
+                    model,
+                    method,
+                    user_id,
+                    orm_error,
+                )
                 return security.error_response("Odoo ORM error", status=500)
 
         except Exception as e:
