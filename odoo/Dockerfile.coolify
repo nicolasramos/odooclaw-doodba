@@ -27,10 +27,12 @@ COPY demo-entrypoint.sh /usr/local/bin/demo-entrypoint.sh
 COPY demo-reset.sh /usr/local/bin/demo-reset.sh
 # Provisions the non-administrative demo login on every boot.
 COPY demo_user.py /usr/local/bin/demo_user.py
+COPY demo_ensure_modules.sh /usr/local/bin/demo_ensure_modules.sh
 
 RUN chown -R odoo:odoo /mnt/extra-addons \
     && chmod -R u=rwX,go=rX /mnt/extra-addons \
-    && chmod +x /usr/local/bin/demo-entrypoint.sh /usr/local/bin/demo-reset.sh
+    && chmod +x /usr/local/bin/demo-entrypoint.sh /usr/local/bin/demo-reset.sh \
+              /usr/local/bin/demo_ensure_modules.sh
 
 USER odoo
 

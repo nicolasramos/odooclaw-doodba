@@ -158,6 +158,39 @@ ensure_template() {
     return 1
 }
 
+# Rebuild the pristine template from a database that already holds the curated
+# state, so the next reset restores it directly instead of reaching it by
+# patching each restore.
+#
+# Without this the template stays frozen at whatever the first boot produced:
+# the modules and accounts added afterwards would have to be re-applied on every
+# single reset, and the fast path would stop being fast.
+#
+# Built under a scratch name on purpose. Dropping the old template before a
+# replacement exists would leave the next reset with the slow re-init path if
+# the copy failed.
+refresh_template() {
+    local source="$1"
+    local fresh="${TEMPLATE}_new"
+    terminate_connections "$fresh"
+    run_psql "DROP DATABASE IF EXISTS \"$fresh\";" >/dev/null 2>&1
+    terminate_connections "$source"
+    sleep 1
+    if ! run_psql "CREATE DATABASE \"$fresh\" TEMPLATE \"$source\";" >/dev/null 2>&1; then
+        log "WARNING: could not build a fresh template; keeping the previous one"
+        run_psql "DROP DATABASE IF EXISTS \"$fresh\";" >/dev/null 2>&1
+        return 0
+    fi
+    terminate_connections "$TEMPLATE"
+    if ! run_psql "DROP DATABASE IF EXISTS \"$TEMPLATE\";" >/dev/null 2>&1 \
+       || ! run_psql "ALTER DATABASE \"$fresh\" RENAME TO \"$TEMPLATE\";" >/dev/null 2>&1; then
+        log "WARNING: could not swap in the fresh template; keeping the previous one"
+        return 0
+    fi
+    log "template '$TEMPLATE' refreshed from '$source'"
+    return 0
+}
+
 # Re-apply the demo accounts to a freshly restored database.
 #
 # The reset replaces the database wholesale, so anything the entrypoint wrote at
@@ -175,7 +208,6 @@ provision_accounts() {
         log "WARNING: demo_user.py not present; skipping account provisioning"
         return 0
     fi
-
     log "re-applying demo accounts on '$target'"
     local err=""
     if err="$(DEMO_USER_LOGIN="${DEMO_USER_LOGIN:-demo}" \
@@ -189,6 +221,24 @@ provision_accounts() {
     else
         log "WARNING: could not re-apply demo accounts: $(echo "$err" | tr '\n' ' ' | cut -c1-250)"
     fi
+    return 0
+}
+
+# Install any wanted module the restored database is missing.
+#
+# Delegates to the shared script so the reset and the boot path cannot drift.
+# Best-effort: a module that fails to install must not fail the reset - the demo
+# still serves, just with one module fewer, and the next pass retries.
+ensure_modules() {
+    local target="$1"
+    if [ ! -x /usr/local/bin/demo_ensure_modules.sh ]; then
+        log "WARNING: demo_ensure_modules.sh not present; skipping module reconciliation"
+        return 0
+    fi
+    PGHOST="$PGHOST_RES" PGUSER="$PGUSER_RES" \
+        /usr/local/bin/demo_ensure_modules.sh "$target" \
+        "${ODOO_INIT_MODULES:-mail_bot_odooclaw,crm,sale_management,account,purchase,stock,contacts,hr_expense,hr,project}" \
+        || log "WARNING: module reconciliation failed on '$target'"
     return 0
 }
 
@@ -236,7 +286,7 @@ do_reset() {
                 run_psql "DROP DATABASE IF EXISTS \"$staging\";" >/dev/null 2>&1
                 attempt=$((attempt + 1)); sleep 10; continue
             fi
-            # The template refresh happens after provisioning, below, so the
+            # The template is refreshed after provisioning, below, so the
             # template also carries the demo accounts and the fast path stays
             # fast.
         fi
@@ -251,6 +301,16 @@ do_reset() {
         # Running it on every reset, rather than trusting the template to carry
         # the accounts, also heals a template captured before this existed.
         provision_accounts "$staging"
+
+        # Same reasoning for the module list: a template captured before a
+        # module was added to the wanted list would hand out resets without it.
+        ensure_modules "$staging"
+
+        # Staging now holds the full curated state - the pristine data plus the
+        # accounts and modules that were added after the template was first
+        # captured. Freeze it as the template so the next reset is a plain copy
+        # again and needs none of the patching above.
+        refresh_template "$staging"
 
         # The staging database is ready. Swap it in: this is the only window
         # where the demo has no database, and it lasts one statement.

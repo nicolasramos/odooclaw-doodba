@@ -50,12 +50,22 @@ fi
 if [ "$NEEDS_INIT" = "1" ]; then
     echo "[demo-odoo-init] initialising the demo database (modules + demo data)"
     odoo --database="$DB" \
-         --init=mail_bot_odooclaw,crm,sale_management,account,purchase,stock,contacts \
+         --init="${ODOO_INIT_MODULES:-mail_bot_odooclaw,crm,sale_management,account,purchase,stock,contacts,hr_expense,hr,project}" \
          --stop-after-init \
          --db-filter="^$DB\$" &
     INIT_PID=$!
     wait "$INIT_PID" || echo "[demo-odoo-init] init exited non-zero; continuing"
     echo "[demo-odoo-init] init finished"
+fi
+
+# Reconcile the module list on every boot. The first-boot init above only runs
+# once, so a database created before a module was added to the wanted list would
+# never receive it; this installs just what is missing (see the script's header
+# for why installing the whole list would be destructive).
+if schema_ready; then
+    /usr/local/bin/demo_ensure_modules.sh "$DB" \
+        "${ODOO_INIT_MODULES:-mail_bot_odooclaw,crm,sale_management,account,purchase,stock,contacts,hr_expense,hr,project}" \
+        || echo "[demo-odoo-init] WARNING: module reconciliation failed; continuing"
 fi
 
 if [ -n "${ODOOCLAW_REPLY_TOKEN:-}" ]; then
