@@ -33,8 +33,12 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       INITIAL_LANG: es_ES
       LIST_DB: "false"
+      # NOTE: an env var named PROXY_MODE does nothing. The official odoo:18
+      # entrypoint only forwards the DB_* parameters and never reads PROXY_MODE,
+      # and `proxy_mode` is commented out in the image's odoo.conf - so setting
+      # it here was a no-op and Odoo did not trust the proxy's X-Forwarded-*
+      # headers. The real flag is passed as --proxy-mode in `command` below.
       ODOO_BUS_PUBLIC_SAMESITE_WS: 1
-      PROXY_MODE: "true"
       # Coolify's magic domain variable: declaring it makes Coolify create the
       # SERVICE_FQDN_ODOO / SERVICE_URL_ODOO pair from the resource's
       # "Docker Compose domains" value, which the labels below then consume.
@@ -91,9 +95,16 @@ services:
     #
     # The command must stay explicit: with `command:` absent, Coolify/compose
     # rewrites the service with an empty cmd and the official entrypoint exits 1.
+    #
+    # --proxy-mode makes Odoo trust the X-Forwarded-* headers Traefik sends.
+    # Without it Odoo builds redirects and the websocket URL from the internal
+    # http:// address instead of the public https:// one, so the browser ends up
+    # talking to the insecure origin and the bus never delivers - the page then
+    # only updates on a manual reload.
     command:
       - odoo
       - --db-filter=^${ODOO_DB:-demo}$
+      - --proxy-mode
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8069/web/health || exit 1"]
       interval: 15s
