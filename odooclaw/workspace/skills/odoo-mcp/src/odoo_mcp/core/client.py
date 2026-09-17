@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Any, Dict, List, Optional
 import requests
@@ -110,21 +111,29 @@ class OdooClient:
 
     @staticmethod
     def _looks_like_stale_session(response: requests.Response) -> bool:
-        """True when Odoo answered 404/500 in the way a dropped session does.
+        """True only when the response proves the *session* is gone.
 
-        Odoo replies 404 for a session it no longer recognises and 500 when the
-        request dies inside the ORM because there is no valid session. Both mean
-        "authenticate again", not "the operation is invalid".
+        This must be narrow. Retrying a request that failed for a real reason
+        would run it twice, and for a write that means duplicating the change.
+        So the retry is limited to the two unambiguous "log in again" signals:
+
+          * 401 with the controller's own wording, or
+          * a body that explicitly says the session is missing or expired.
+
+        A plain 500 is NOT included on purpose: Odoo answers 500 both when a
+        session died and when an ordinary ORM error occurred, and the two are
+        indistinguishable from here. The demo's own search_read 500 was an ORM
+        permissions error, not a dead session - retrying it would have been
+        wrong.
         """
-        if response.status_code in (401, 404, 500):
+        if response.status_code == 401:
             return True
-        # A JSON-RPC error mentioning the session is equally conclusive.
         try:
             body = response.json()
         except ValueError:
             return False
-        text = str(body.get("error", "")) + str(body.get("result", ""))
-        return "session" in text.lower() and "expired" in text.lower()
+        text = json.dumps(body).lower() if isinstance(body, dict) else str(body).lower()
+        return ("must be logged in" in text) or ("session" in text and "expired" in text)
 
     def _post_once(self, endpoint: str, payload: dict) -> requests.Response:
         try:

@@ -12,6 +12,15 @@ _field_cache: Dict[str, set] = {}
 _FIELD_CACHE_TTL_SECONDS = 60.0
 _field_cache_timestamps: Dict[str, float] = {}
 
+# Fields used when a caller asks for a record without naming any.
+#
+# These are the identifiers a reader almost always wants, and - critically - they
+# are plain columns, not relational/computed fields that fan out into other
+# models. Reading everything instead drags in relations the caller may not be
+# allowed to touch (res.partner alone reaches account.move), which Odoo answers
+# with a 500 rather than an empty result.
+DEFAULT_READ_FIELDS = ["id", "name", "display_name"]
+
 
 def _get_model_fields(client: OdooClient, model: str, sender_id: int) -> set:
     """Return the set of valid field names for *model* via fields_get.
@@ -127,8 +136,23 @@ def odoo_search_read(
     validate_domain(domain)
     guard_model_access(model, client, sender_id=user_id)
     clean = _validate_fields(client, model, fields, user_id)
-    kwargs = {"limit": limit}
+    kwargs: Dict[str, Any] = {"limit": limit}
     if clean:
+        kwargs["fields"] = clean
+    else:
+        # Never let search_read run without an explicit field list.
+        #
+        # Odoo's search_read with no `fields` reads EVERY stored field,
+        # including computed relation fields that fan out into other models.
+        # For a limited user that explodes: res.partner alone pulls in
+        # account.move, which the demo login cannot access, and Odoo answers
+        # 500 "You are not allowed to access 'Journal Entry'" - the bot then
+        # reports an internal error for what is really a permissions boundary.
+        #
+        # Falling back to a small, safe list keeps the call cheap and, more
+        # importantly, inside what the caller's own rights allow.
+        available = _get_model_fields(client, model, user_id)
+        clean = [f for f in DEFAULT_READ_FIELDS if f in available] or ["id"]
         kwargs["fields"] = clean
     records = client.call_kw(
         model, "search_read", args=[domain], kwargs=kwargs, sender_id=user_id

@@ -133,17 +133,33 @@ def test_odoo_search_read_valid_fields_pass():
     assert _extract_fields_from_call(calls, 1) == ["name", "id"]
 
 
-def test_odoo_search_read_none_fields_no_validation():
-    """fields=None → no validation in search_read."""
+def test_odoo_search_read_none_fields_uses_safe_default():
+    """fields=None → a safe default field list, never "read everything".
+
+    Reading every field makes Odoo fan out into related models, which a limited
+    user may not be allowed to touch: res.partner reaches account.move, and Odoo
+    answers that with a 500 rather than an empty result. So a default list is
+    always sent.
+    """
     client = _make_mock_client()
     odoo_search_read(
         client, 1, "res.partner", [["name", "ilike", "Acme"]],
         limit=10,
     )
     calls = client.call_kw.call_args_list
-    # Only one call (no fields_get needed)
-    assert len(calls) == 1
-    assert "fields" not in calls[0].kwargs["kwargs"]
+    # Find the search_read call rather than relying on its index: the default
+    # field list needs a fields_get first, so the position is an implementation
+    # detail this test should not pin down.
+    search_read_call = next(
+        c for c in calls if c.args and c.args[0] == "res.partner" and len(c.args) > 1
+        and c.args[1] == "search_read"
+    )
+    sent = search_read_call.kwargs["kwargs"].get("fields")
+    assert sent, "search_read must always send an explicit field list"
+    # The mock model exposes a different field set than the default list, so the
+    # assertion is that the default was intersected with reality - not that it
+    # was sent verbatim.
+    assert set(sent).issubset({"id", "name", "display_name"})
 
 
 def test_odoo_search_read_strips_underscore_fields():
