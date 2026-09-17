@@ -9,9 +9,13 @@ WHY THIS EXISTS
     password locks everybody else out.
 
 WHAT IT CREATES
-    An ordinary Internal User (`base.group_user`) and nothing else. That is the
-    minimum Odoo needs for Discuss, which is the whole point of the demo, and it
-    carries no Settings, Apps or admin rights. The demo is deliberately NOT
+    An ordinary Internal User plus the *user* group of each app the demo shows
+    (Sales, Invoicing, Purchase, Inventory, Expenses). Internal User alone is
+    not enough: every app's root menu is gated on that app's group, so with only
+    `base.group_user` the demo user sees Discuss and almost nothing else - which
+    looks exactly like "the modules are not installed". The user-level groups
+    open the menus and the data without granting configuration rights, and the
+    manager variants are asserted absent. The demo is deliberately NOT
     made read-only at the ORM level: the periodic database reset (see
     odoo/demo-reset.sh) already undoes anything a visitor changes, and a
     hand-written ir.rule is easy to get subtly wrong - a mis-scoped rule that
@@ -52,8 +56,45 @@ env = env  # noqa: F821 - injected by `odoo shell`
 Users = env["res.users"].sudo()
 
 # base.group_user = "Internal User": required by Discuss, carries no admin rights.
-# Deliberately the ONLY group.
 internal = env.ref("base.group_user")
+
+# The apps the demo is meant to show. Without these the demo user opens the
+# instance and sees only Discuss and a couple of stray menus - the apps are
+# installed but every root menu is gated on a group the user does not have, so
+# "the modules are not installed" is what it looks like from the outside. These
+# are the *user* groups of each app, not the Administrator ones: they grant the
+# menus and read access without giving away configuration rights.
+#
+# Referenced with raise_if_not_found=False because not every install has them:
+# a module that is not installed must not break account provisioning.
+DEMO_GROUP_XMLIDS = (
+    "sales_team.group_sale_salesman",        # Sales
+    "account.group_account_invoice",         # Invoicing
+    "account.group_account_readonly",        # Accounting read-only features
+    "purchase.group_purchase_user",          # Purchase
+    "stock.group_stock_user",                # Inventory
+    "hr_expense.group_hr_expense_user",      # Expenses
+)
+
+# Administrative groups that must never be attached. Kept explicit so a future
+# edit to the list above cannot silently widen access.
+FORBIDDEN_GROUP_XMLIDS = (
+    "base.group_system",                     # Settings
+    "base.group_erp_manager",                # Access Rights
+    "sales_team.group_sale_manager",
+    "account.group_account_manager",
+    "purchase.group_purchase_manager",
+    "stock.group_stock_manager",
+    "hr_expense.group_hr_expense_manager",
+)
+
+demo_groups = [internal]
+for xid in DEMO_GROUP_XMLIDS:
+    group = env.ref(xid, raise_if_not_found=False)
+    if group:
+        demo_groups.append(group)
+    else:
+        print(f"[demo-user] note: {xid} not present (module not installed); skipped")
 
 user = Users.with_context(active_test=False).search([("login", "=", LOGIN)], limit=1)
 if user:
@@ -63,7 +104,7 @@ else:
 
 # Re-apply groups and password on every boot. Odoo expands groups during create,
 # so the definitive list is set here rather than at creation time.
-user.write({"groups_id": [(6, 0, [internal.id])]})
+user.write({"groups_id": [(6, 0, [g.id for g in demo_groups])]})
 
 try:
     user.write({"password": PASSWORD})
@@ -97,6 +138,13 @@ must_not_have = [
     env.ref("base.group_system"),       # Settings
     env.ref("base.group_erp_manager"),  # Access Rights
 ]
+# Also refuse the manager variant of every app group the demo now receives.
+# These grant configuration rights on their app (price lists, sequences,
+# warehouse setup...) which is exactly what the demo must not hand out.
+for xid in FORBIDDEN_GROUP_XMLIDS:
+    group = env.ref(xid, raise_if_not_found=False)
+    if group:
+        must_not_have.append(group)
 for group in must_not_have:
     assert not user.has_group(group.id), (
         f"[demo-user] {LOGIN} has the administrative group "
