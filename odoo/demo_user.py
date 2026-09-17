@@ -68,10 +68,34 @@ if "signup_type" in user._fields:
 
 user.partner_id.write({"name": NAME, "active": True})
 
-# Sanity-check the result instead of trusting the writes above: these two
-# assertions are the properties the demo depends on.
-extra_groups = user.groups_id - internal
-assert not extra_groups, f"[demo-user] {LOGIN} unexpectedly has groups: {extra_groups}"
+# Sanity-check the result rather than trusting the writes above. These are the
+# properties the demo actually depends on, verified against Odoo 18:
+#
+#   * no administrative group at all - in particular NOT base.group_system
+#     (Settings) and NOT base.group_erp_manager (Access Rights). Either would let
+#     a visitor into the administrative side, which is the whole point of giving
+#     them a separate account.
+#   * still an internal user, because a portal user cannot use the Discuss bot
+#     channel and the demo would be dead.
+#
+# Note that `base.group_user` structurally implies `base.group_no_one`
+# ("Technical Features", declared in base/security/base_groups.xml). That is not
+# removable - Odoo re-adds it - and it grants no administrative access on its
+# own, so it is expected here rather than treated as a leak.
+required = env.ref("base.group_user")
+must_not_have = [
+    env.ref("base.group_system"),       # Settings
+    env.ref("base.group_erp_manager"),  # Access Rights
+]
+for group in must_not_have:
+    assert not user.has_group(group.id), (
+        f"[demo-user] {LOGIN} has the administrative group "
+        f"{group.full_name!r}; visitors would reach the admin side"
+    )
+assert user.has_group(required.id), (
+    f"[demo-user] {LOGIN} is not an internal user; Discuss (the demo's whole "
+    f"purpose) would not work"
+)
 
 env.cr.commit()
 print(
