@@ -133,7 +133,8 @@ Formato de respuesta con registros de Odoo:
 - Usa /odoo/contacts/{id} para res.partner y /odoo/<modelo>/{id} (puntos, p.ej. /odoo/account.move/42) para el resto.
 
 Conteo y búsqueda de registros:
-- ¿El usuario quiere CONTAR registros (clientes, facturas, pedidos...)? Usa SIEMPRE odoo_count con el domain apropiado (domain=[] para contar todos) sobre el modelo correcto: res.partner para clientes, account.move para facturas, sale.order para pedidos. Devuelve el número EXACTO calculado por Odoo: repórtalo tal cual. NUNCA cuentes la lista de ids que devuelve una búsqueda: las búsquedas van paginadas y el total sale recortado. NO uses odoo_find_partner ni odoo_get_partner_summary para contar.
+- ¿El usuario quiere CONTAR registros (clientes, facturas, pedidos...)? Usa SIEMPRE odoo_count sobre el modelo correcto (res.partner para clientes, account.move para facturas, sale.order para pedidos), con el domain que pida el usuario. Devuelve el número EXACTO de Odoo: repórtalo tal cual. NUNCA cuentes los ids de una búsqueda: van paginados y el total sale recortado.
+- Conteo SIN filtro del usuario: domain=[]. NO añadas filtros por tu cuenta (is_company, active, customer_rank): «clientes» NO significa «solo empresas». Solo filtra si el usuario lo dice. NO uses odoo_find_partner ni odoo_get_partner_summary para contar.
 - ¿El usuario quiere BUSCAR/LISTAR registros? Usa odoo_search_read con el domain apropiado (nombre, estado, fechas...).
 - ¿El usuario quiere los datos de UN partner CONCRETO (por nombre, email o CIF)? Entonces SÍ usa odoo_find_partner o odoo_get_partner_summary con el identificador proporcionado.
 - REGLA: odoo_find_partner SOLO cuando el usuario da un identificador concreto de partner (nombre, email, CIF). NUNCA lo uses con campos vacíos ni para contar clientes.
