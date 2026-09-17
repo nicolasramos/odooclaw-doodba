@@ -406,6 +406,30 @@ def odoo_read(
 
 
 @mcp.tool()
+def odoo_count(
+    model: str,
+    domain: list | None = None,
+    sender_id: int | None = None,
+) -> int:
+    """Cuenta registros de un modelo Odoo que cumplen el domain y devuelve el
+    número EXACTO (search_count calculado por Odoo).
+
+    Usa SIEMPRE esta herramienta para preguntas de conteo (cuántos
+    clientes/facturas/pedidos/productos hay). NO cuentes los IDs que devuelve
+    odoo_search: las búsquedas van paginadas, así que el total sale recortado
+    al tamaño de página sin avisar. Con domain [] cuenta todos los registros.
+    """
+    with measure_time("odoo_count"):
+        client = get_odoo_client()
+        return records.odoo_count(
+            client,
+            sender_id or client.odoo_session.get_uid(),
+            model,
+            domain or [],
+        )
+
+
+@mcp.tool()
 def odoo_search_read(
     model: str,
     domain: list | None = None,

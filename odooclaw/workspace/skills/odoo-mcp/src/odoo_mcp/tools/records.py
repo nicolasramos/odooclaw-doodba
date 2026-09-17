@@ -107,6 +107,29 @@ def odoo_search(
     )
 
 
+def odoo_count(
+    client: OdooClient, user_id: int, model: str, domain: List[Any]
+) -> int:
+    """Return the EXACT number of records matching *domain*.
+
+    Counting must never be done by counting the IDs a search returns: the
+    search tools are paginated (odoo_search_read defaults to 80), so a count
+    taken from a result list is silently capped at the page size while looking
+    perfectly healthy. Odoo computes the real total here via search_count and
+    the model only has to read a single integer.
+
+    Restores the NRA-556 fix, which was lost when a later core subtree sync
+    replaced this module.
+    """
+    try:
+        validate_domain(domain)
+    except Exception:
+        # Same safe fallback as odoo_search: malformed domains count all.
+        domain = []
+    guard_model_access(model, client, sender_id=user_id)
+    return client.call_kw(model, "search_count", args=[domain], sender_id=user_id)
+
+
 def odoo_read(
     client: OdooClient,
     user_id: int,
