@@ -1236,6 +1236,10 @@ func extractQwenContentToolCalls(text string) []ToolCall {
 		searchFrom = end + len("</tool_call>")
 	}
 
+	if len(result) == 0 {
+		result = extractQwenXMLFunctionToolCalls(text)
+	}
+
 	// Pass 2: bare JSON objects with mcp_ tool names
 	if len(result) == 0 {
 		// Find {"name": "mcp_...", ...} and parse with balanced braces so
@@ -1258,6 +1262,148 @@ func extractQwenContentToolCalls(text string) []ToolCall {
 		return nil
 	}
 	return result
+}
+
+// extractQwenXMLFunctionToolCalls parses the XML tool-call dialect some Qwen
+// builds emit inside the response content, where the call is expressed as
+// child tags rather than as the JSON body the parser above expects:
+//
+//	<tool_call>
+//	<function=odoo_search_read>
+//	<parameter=model>
+//	res.partner
+//	</parameter>
+//	<parameter=arguments>
+//	{"domain": []}
+//	</arguments>
+//	</tool_call>
+//
+// It is a distinct dialect, not a variation of the JSON one: the tool name
+// lives in the <function=…> tag and each argument in its own <parameter=…>.
+// Without this the block matches neither pass of extractQwenContentToolCalls,
+// so the call is never executed AND the markup is published to the user as the
+// answer - both symptoms in one.
+//
+// Names are matched as-is (including any mcp_ prefix the gateway added) because
+// the model echoes the names it was given.
+func extractQwenXMLFunctionToolCalls(text string) []ToolCall {
+	result := make([]ToolCall, 0)
+	callIndex := 1
+
+	functionTag := regexp.MustCompile(`<function=([A-Za-z0-9_\-\.]+)\s*>`)
+	blocks := regexp.MustCompile(`(?s)<tool_call>(.*?)</tool_call>`)
+
+	for _, match := range blocks.FindAllStringSubmatch(text, -1) {
+		body := match[1]
+		nameMatch := functionTag.FindStringSubmatch(body)
+		if nameMatch == nil {
+			continue
+		}
+		name := strings.TrimSpace(nameMatch[1])
+		if name == "" {
+			continue
+		}
+
+		args := parseQwenXMLParameters(body)
+		argsJSON := "{}"
+		if len(args) > 0 {
+			if encoded, err := json.Marshal(args); err == nil {
+				argsJSON = string(encoded)
+			}
+		}
+
+		result = append(result, ToolCall{
+			ID:        "qwen_call_" + strconv.Itoa(callIndex),
+			Type:      "function",
+			Name:      name,
+			Arguments: args,
+			Function: &FunctionCall{
+				Name:      name,
+				Arguments: argsJSON,
+			},
+		})
+		callIndex++
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// parseQwenXMLParameters reads the <parameter=name>value</parameter> pairs of an
+// XML tool-call body.
+//
+// The closing tag is not reliable: the live output closed a parameter with
+// `</arguments>` (its own name) rather than `</parameter>`. So rather than
+// trusting it, each parameter's value is taken up to the next opening tag or the
+// end of the body, and a trailing closing tag of any name is trimmed off. A
+// value that is itself JSON is decoded, so `{"domain": []}` arrives as
+// structured arguments rather than as a string the tool has to re-parse.
+func parseQwenXMLParameters(body string) map[string]any {
+	args := map[string]any{}
+	closingTag := regexp.MustCompile(`</[A-Za-z0-9_\-\.]*>\s*$`)
+
+	const openMarker = "<parameter="
+	pos := 0
+	for {
+		rel := strings.Index(body[pos:], openMarker)
+		if rel == -1 {
+			break
+		}
+		nameStart := pos + rel + len(openMarker)
+		nameEnd := strings.IndexAny(body[nameStart:], "> 	\n")
+		if nameEnd == -1 {
+			break
+		}
+		key := strings.TrimSpace(body[nameStart : nameStart+nameEnd])
+		valueStart := nameStart + nameEnd
+		for valueStart < len(body) && body[valueStart] != '>' {
+			valueStart++
+		}
+		valueStart++ // past '>'
+
+		// The value runs to the next opening tag, or to the end of the body.
+		valueEnd := len(body)
+		if next := strings.Index(body[valueStart:], openMarker); next != -1 {
+			valueEnd = valueStart + next
+		}
+
+		raw := strings.TrimSpace(closingTag.ReplaceAllString(strings.TrimSpace(body[valueStart:valueEnd]), ""))
+		if key != "" && raw != "" {
+			if strings.HasPrefix(raw, "{") {
+				raw = findBalancedSubstring(raw)
+			}
+			var decoded any
+			if err := json.Unmarshal([]byte(raw), &decoded); err == nil {
+				args[key] = decoded
+			} else {
+				args[key] = raw
+			}
+		}
+
+		pos = valueEnd
+	}
+
+	return args
+}
+
+// findBalancedSubstring returns the substring from the first balanced JSON
+// object onwards, dropping trailing markup.
+//
+// The dialect is not uniformly well-formed: one live block closed the JSON
+// argument with `</arguments>` instead of `</parameter>`, which leaves the
+// stray tag inside the captured value and makes json.Unmarshal fail. Trimming to
+// the balanced object recovers the arguments in that case.
+func findBalancedSubstring(s string) string {
+	start := strings.Index(s, "{")
+	if start < 0 {
+		return s
+	}
+	if end := findBalancedJSON(s, start); end > start {
+		return s[start:end]
+	}
+	return s
 }
 
 func parseQwenToolCallJSON(body string, index int) *ToolCall {
@@ -1347,7 +1493,9 @@ func findBalancedJSON(text string, start int) int {
 // stripQwenContentToolCalls removes Qwen tool call markup from text,
 // leaving only the natural language content.
 func stripQwenContentToolCalls(text string) string {
-	re := regexp.MustCompile(`<tool_call>.*?</tool_call>`)
+	// (?s) so `.` spans newlines: tool-call markup is multi-line, and without
+	// it the block is left in place and published to the user as the answer.
+	re := regexp.MustCompile(`(?s)<tool_call>.*?</tool_call>`)
 	cleaned := re.ReplaceAllString(text, "")
 	// Remove leftover bare JSON tool objects
 	re2 := regexp.MustCompile(`\{"name":\s*"(mcp_[^"]+)"[^}]*\}`)
