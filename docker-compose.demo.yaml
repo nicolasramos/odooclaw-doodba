@@ -38,7 +38,30 @@ services:
       # and `proxy_mode` is commented out in the image's odoo.conf - so setting
       # it here was a no-op and Odoo did not trust the proxy's X-Forwarded-*
       # headers. The real flag is passed as --proxy-mode in `command` below.
-      ODOO_BUS_PUBLIC_SAMESITE_WS: 1
+      #
+      # DO NOT set ODOO_BUS_PUBLIC_SAMESITE_WS here. That variable enables
+      # odoo/addons/bus/websocket.py::_handle_public_configuration, which
+      # compares the websocket's Origin against the Host header and the scheme
+      # Odoo believes it serves:
+      #
+      #     if not os.getenv('ODOO_BUS_PUBLIC_SAMESITE_WS'):
+      #         return                       # <- without it: no comparison at all
+      #     origin_url = urlparse(headers.get('origin'))
+      #     if origin_url.netloc != headers.get('host') or \
+      #        origin_url.scheme != request.httprequest.scheme:
+      #         session = root.session_store.new()   # <- PUBLIC session
+      #         ...
+      #
+      # Behind Coolify's reverse proxy the Host Odoo receives and the scheme it
+      # reconstructs do not match what the browser puts in Origin, so the check
+      # fires on EVERY connection: it silently swaps the authenticated session
+      # for a fresh anonymous one. The websocket then has no user and no
+      # channels, so the bot's reply is never pushed and the page only shows it
+      # after a reload (which re-reads the messages over the ORM).
+      #
+      # Reproduced in isolation: the same Odoo image with this variable set plus
+      # an Origin whose scheme differs delivered 0 notifications, while the same
+      # container with the variable removed delivered them normally.
       # Coolify's magic domain variable: declaring it makes Coolify create the
       # SERVICE_FQDN_ODOO / SERVICE_URL_ODOO pair from the resource's
       # "Docker Compose domains" value, which the labels below then consume.
