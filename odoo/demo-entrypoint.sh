@@ -74,5 +74,28 @@ if [ -n "${ODOOCLAW_REPLY_TOKEN:-}" ]; then
     done
 fi
 
+# Create the non-administrative demo login. The demo is handed out publicly, so
+# visitors get this account instead of `admin`: it can use Discuss (the whole
+# point) but has no access to Settings, Apps or anything administrative.
+# Idempotent and re-applied every boot - see odoo/demo_user.py.
+if [ "${DEMO_USER_ENABLED:-true}" = "true" ]; then
+    echo "[demo-odoo-init] provisioning the demo login '${DEMO_USER_LOGIN:-demo}'"
+    for _ in $(seq 1 60); do
+        if schema_ready; then
+            if DEMO_USER_LOGIN="${DEMO_USER_LOGIN:-demo}" \
+               DEMO_USER_PASSWORD="${DEMO_USER_PASSWORD:-demo}" \
+               DEMO_USER_NAME="${DEMO_USER_NAME:-Demo (invitado)}" \
+               odoo shell --database="$DB" --no-http --db-filter="^$DB\$" \
+                    < /usr/local/bin/demo_user.py 2>&1 | tail -3; then
+                echo "[demo-odoo-init] demo login ready"
+                break
+            fi
+            echo "[demo-odoo-init] WARNING: demo login provisioning failed; continuing"
+            break
+        fi
+        sleep 2
+    done
+fi
+
 # Normal runtime: hand off to the official entrypoint (db args + wait-for-psql).
 exec /entrypoint.sh "$@"
