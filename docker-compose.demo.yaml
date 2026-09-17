@@ -185,10 +185,16 @@ services:
       # Must match Odoo's odooclaw.reply_token system parameter.
       ODOOCLAW_REPLY_TOKEN: ${ODOOCLAW_REPLY_TOKEN}
       # Odoo connection used by the odoo-mcp tools.
+      #
+      # ODOO_PASSWORD follows ADMIN_PASSWORD deliberately. The gateway
+      # authenticates as an Odoo user, so changing the admin password without
+      # changing this one locks the bot out of Odoo - it starts answering
+      # "Access Denied" instead of the user's question. Deriving one from the
+      # other means a password rotation can never silently break the bot.
       ODOO_URL: http://odoo:8069
       ODOO_DB: ${ODOO_DB:-demo}
       ODOO_USERNAME: ${ODOO_USERNAME:-admin}
-      ODOO_PASSWORD: ${ODOO_PASSWORD:-admin}
+      ODOO_PASSWORD: ${ADMIN_PASSWORD:-admin}
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
