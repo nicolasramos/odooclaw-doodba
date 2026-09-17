@@ -90,37 +90,73 @@ class OdooClient:
         return self._do_post(endpoint, payload)
 
     def _do_post(self, endpoint: str, payload: dict) -> Any:
-        try:
-            response = self.odoo_session.session.post(
-                endpoint, json=payload, timeout=30
+        response = self._post_once(endpoint, payload)
+
+        # A reset replaces the database wholesale, which invalidates every
+        # session id. The cached session then looks authenticated locally but
+        # Odoo no longer knows it, and every call fails until the process is
+        # restarted - which is why the bot answered "internal server error"
+        # after a reset. Re-authenticate once and retry, so a reset costs one
+        # extra round-trip instead of breaking the demo until the next deploy.
+        if self._looks_like_stale_session(response):
+            _logger.warning(
+                "Odoo session rejected (likely invalidated by a database reset); "
+                "re-authenticating and retrying once"
             )
-            response.raise_for_status()
-            result = response.json()
+            self.odoo_session.authenticate()
+            response = self._post_once(endpoint, payload)
 
-            # Check for generic server errors (e.g. from call_kw_as_user controller)
-            if result.get("status") == "error":
-                raise OdooRPCError(f"Delegated RPC Error: {result.get('reason')}")
+        return self._parse(response)
 
-            # Check for JSON-RPC specific errors
-            if "error" in result:
-                err_data = result["error"].get("data", {})
-                err_msg = err_data.get("message", "Unknown error")
-                err_debug = err_data.get("debug", "")
-                raise OdooRPCError(f"RPC Error: {err_msg}\n{err_debug}")
+    @staticmethod
+    def _looks_like_stale_session(response: requests.Response) -> bool:
+        """True when Odoo answered 404/500 in the way a dropped session does.
 
-            if "result" in result:
-                # call_kw_as_user wraps result in {"status": "ok", "result": ...}
-                if (
-                    isinstance(result["result"], dict)
-                    and result["result"].get("status") == "ok"
-                ):
-                    return result["result"].get("result")
-                return result["result"]
-
+        Odoo replies 404 for a session it no longer recognises and 500 when the
+        request dies inside the ORM because there is no valid session. Both mean
+        "authenticate again", not "the operation is invalid".
+        """
+        if response.status_code in (401, 404, 500):
             return True
+        # A JSON-RPC error mentioning the session is equally conclusive.
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        text = str(body.get("error", "")) + str(body.get("result", ""))
+        return "session" in text.lower() and "expired" in text.lower()
 
-        except requests.RequestException as e:
-            raise OdooRPCError(f"Network error during RPC call: {str(e)}")
+    def _post_once(self, endpoint: str, payload: dict) -> requests.Response:
+        try:
+            return self.odoo_session.session.post(endpoint, json=payload, timeout=30)
+        except requests.RequestException as exc:
+            raise OdooRPCError(f"RPC transport error: {exc}") from exc
+
+    def _parse(self, response: requests.Response) -> Any:
+        response.raise_for_status()
+        result = response.json()
+
+        # Check for generic server errors (e.g. from call_kw_as_user controller)
+        if result.get("status") == "error":
+            raise OdooRPCError(f"Delegated RPC Error: {result.get('reason')}")
+
+        # Check for JSON-RPC specific errors
+        if "error" in result:
+            err_data = result["error"].get("data", {})
+            err_msg = err_data.get("message", "Unknown error")
+            err_debug = err_data.get("debug", "")
+            raise OdooRPCError(f"RPC Error: {err_msg}\n{err_debug}")
+
+        if "result" in result:
+            # call_kw_as_user wraps result in {"status": "ok", "result": ...}
+            if (
+                isinstance(result["result"], dict)
+                and result["result"].get("status") == "ok"
+            ):
+                return result["result"].get("result")
+            return result["result"]
+
+        return True
 
     def try_call_kw(
         self,
