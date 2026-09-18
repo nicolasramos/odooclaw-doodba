@@ -27,6 +27,7 @@ import time
 import traceback
 import types
 import uuid
+import fcntl
 from typing import Any
 
 # ─── Output caps ──────────────────────────────────────────────────────────────
@@ -323,7 +324,7 @@ class ContextLake:
         if not isinstance(content, str):
             content = json.dumps(content, ensure_ascii=False, default=str)
         self._ensure()
-        now = time.time()
+        now = int(time.time() * 1000)
         entry = {
             "key": key,
             "content": content,
@@ -332,8 +333,8 @@ class ContextLake:
             "created": self._entries.get(key, {}).get("created", now),
             "updated": now,
         }
-        self._entries[key] = entry
         self._append(entry)
+        self._entries[key] = entry
         return {"key": key, "chars": len(content), "tags": entry["tags"]}
 
     def get(self, key: str) -> str | None:
@@ -349,7 +350,7 @@ class ContextLake:
             re_obj = re.compile(re.escape(pattern), re.IGNORECASE)
         out = []
         for e in self._entries.values():
-            if re_obj.search(e.get("content", "")) or re_obj.search(e.get("key", "")):
+            if re_obj.search(e.get("content", "")) or re_obj.search(e.get("key", "")) or any(re_obj.search(t) for t in e.get("tags", [])):
                 out.append({"key": e["key"], "chars": len(e.get("content", "")), "tags": e.get("tags", [])})
                 if len(out) >= max_results:
                     break
@@ -382,9 +383,35 @@ class ContextLake:
         for k in removed:
             del self._entries[k]
         if removed:
-            with open(self._lake_file, "w", encoding="utf-8") as f:
-                for e in self._entries.values():
-                    f.write(json.dumps(e, ensure_ascii=False) + "\n")
+            lock_path = os.path.join(self._dir, "lake.jsonl.lock")
+            lock_fd = open(lock_path, "w")
+            try:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+                # Read back the lake file under lock to get concurrent writes,
+                # then rewrite with our entries removed.
+                fresh = {}
+                try:
+                    with open(self._lake_file, encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                e = json.loads(line)
+                                if e.get("key"):
+                                    fresh[e["key"]] = e
+                            except json.JSONDecodeError:
+                                continue
+                except OSError:
+                    pass
+                for k in removed:
+                    fresh.pop(k, None)
+                with open(self._lake_file, "w", encoding="utf-8") as f:
+                    for e in fresh.values():
+                        f.write(json.dumps(e, ensure_ascii=False) + "\n")
+            finally:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+                lock_fd.close()
         return len(removed)
 
 

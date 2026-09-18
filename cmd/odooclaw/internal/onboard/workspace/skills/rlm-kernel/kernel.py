@@ -47,6 +47,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import contextvars
+import fcntl
 import inspect
 import json
 import os
@@ -139,6 +140,14 @@ class _StreamWriter:
     def flush(self) -> None:
         with self._lock:
             self._flush(truncated=False)
+
+    def clear(self) -> None:
+        """Discard buffered data without emitting events. Used in the finally block
+        to drain any residual output (sent already with rid via flush) so the
+        buffer doesn't leak to the next request."""
+        with self._lock:
+            self._buf = []
+            self._bytes = 0
 
     def _flush(self, truncated: bool) -> None:
         if not self._buf:
@@ -378,7 +387,7 @@ class _LakeBridge:
         if not isinstance(content, str):
             content = json.dumps(content, ensure_ascii=False, default=str)
         self._ensure()
-        now = time.time()
+        now = int(time.time() * 1000)
         entry = {
             "key": key,
             "content": content,
@@ -387,8 +396,8 @@ class _LakeBridge:
             "created": self._entries.get(key, {}).get("created", now),
             "updated": now,
         }
-        self._entries[key] = entry
         self._append(entry)
+        self._entries[key] = entry
         return {"key": key, "chars": len(content), "tags": entry["tags"]}
 
     def get(self, key: str) -> str | None:
@@ -404,7 +413,7 @@ class _LakeBridge:
             re_obj = re.compile(re.escape(pattern), re.IGNORECASE)
         out = []
         for e in self._entries.values():
-            if re_obj.search(e.get("content", "")) or re_obj.search(e.get("key", "")):
+            if re_obj.search(e.get("content", "")) or re_obj.search(e.get("key", "")) or any(re_obj.search(t) for t in e.get("tags", [])):
                 out.append({"key": e["key"], "chars": len(e.get("content", "")), "tags": e.get("tags", [])})
                 if len(out) >= max_results:
                     break
@@ -436,9 +445,35 @@ class _LakeBridge:
         for k in removed:
             del self._entries[k]
         if removed and self._file:
-            with open(self._file, "w", encoding="utf-8") as f:
-                for e in self._entries.values():
-                    f.write(json.dumps(e, ensure_ascii=False) + "\n")
+            lock_path = self._file + ".lock"
+            lock_fd = open(lock_path, "w")
+            try:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+                # Read back the lake file under lock to get concurrent writes,
+                # then rewrite with our entries removed.
+                fresh = {}
+                try:
+                    with open(self._file, encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                e = json.loads(line)
+                                if e.get("key"):
+                                    fresh[e["key"]] = e
+                            except json.JSONDecodeError:
+                                continue
+                except OSError:
+                    pass
+                for k in removed:
+                    fresh.pop(k, None)
+                with open(self._file, "w", encoding="utf-8") as f:
+                    for e in fresh.values():
+                        f.write(json.dumps(e, ensure_ascii=False) + "\n")
+            finally:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+                lock_fd.close()
         return len(removed)
 
 
@@ -476,22 +511,32 @@ def _handle_request(req: dict[str, Any]) -> None:
                 timer = threading.Timer(timeout, _deliver_sigint)
                 timer.daemon = True
                 timer.start()
+            _current_cell.set(rid)
             try:
                 result = _run_cell(code, rid)
+                # Flush captured stdout/stderr BEFORE sending result so
+                # events arrive in the correct order with the right id.
+                sys.stdout.flush()  # type: ignore[attr-defined]
+                sys.stderr.flush()  # type: ignore[attr-defined]
                 if result.get("ok"):
                     _send({"event": "result", "id": rid, **result})
                 else:
                     _send({"event": "error", "id": rid, **result})
             except KeyboardInterrupt:
+                sys.stdout.flush()  # type: ignore[attr-defined]
+                sys.stderr.flush()  # type: ignore[attr-defined]
                 _send({"event": "error", "id": rid, "ename": "KeyboardInterrupt",
                        "evalue": "cell interrupted", "traceback": ["KeyboardInterrupt\n"]})
             except BaseException as exc:  # noqa: BLE001
+                sys.stdout.flush()  # type: ignore[attr-defined]
+                sys.stderr.flush()  # type: ignore[attr-defined]
                 te = traceback.TracebackException.from_exception(exc)
                 _send({"event": "error", "id": rid, "ename": type(exc).__name__,
                        "evalue": _safe_str(exc), "traceback": list(te.format())})
             finally:
                 if timer:
                     timer.cancel()
+                _current_cell.set(None)
         elif rtype == "interrupt":
             _deliver_sigint()
         elif rtype == "snapshot":
@@ -516,8 +561,9 @@ def _handle_request(req: dict[str, Any]) -> None:
                    "evalue": f"unknown request type: {rtype!r}", "traceback": []})
     finally:
         _active["rid"] = None
-        sys.stdout.flush()  # type: ignore[attr-defined]
-        sys.stderr.flush()  # type: ignore[attr-defined]
+        # Drain residual output without emitting events (already sent with rid).
+        sys.stdout.clear()  # type: ignore[attr-defined]
+        sys.stderr.clear()  # type: ignore[attr-defined]
         _send({"event": "done", "id": rid})
 
 
