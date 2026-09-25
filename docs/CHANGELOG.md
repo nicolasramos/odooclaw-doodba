@@ -9,96 +9,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [1.1.0] - 2026-09-23
+
+### Added
+- **RLM-Kernel MCP server** (NRA-1330, PR #75): full MCP server for the RLM kernel — persistent Python kernel with context lake (`rlm_store`/`rlm_search`/`rlm_get`), background subagents via `rlm`/`rlm_result`, and ipython-based state that survives across calls. Includes `SKILL.md`, `kernel.py`, `server.py`, and portable test suite.
+- **`odoo_search_read` as MCP tool** (NRA-469, PR #71): expose Odoo `search_read` directly as an MCP tool for external clients.
+- **`/system` endpoint** (NRA-493, PR #72): system info endpoint with `MODULES.md` injection into gateway context, security bypass closure for local development.
+- **`/webhook/odoo/system` endpoint** (NRA-487, PR #67): webhook for Odoo system events (cache invalidation).
+- **CI pytest job for odoo-mcp** (PR #70): automated test runs for the odoo-mcp skill in CI.
+
+### Fixed
+- **RLM-Kernel portability** (PR #76): ported fixes F-2, F-4, P-3, F-6, B-2 from rlm-agent to rlm-kernel — memory leak in kernel restart, infinite loop in subagent collection, timeout handling improvements, better error messages.
+- **RLM-Kernel test portability** (PR #77): eliminate hardcoded `/tmp` paths from rlm-kernel tests using `tempfile.mkdtemp()`.
+- **RetrievalEngine cloud model support** (PR #74): extend RetrievalEngine to work with cloud-based models, not only local.
+- **Qwen XML tool-call parser** (PR #77): parse the Qwen XML tool-call dialect emitted as child tags (not attribute-based `<tool_invocation>` format).
+- **Test isolation in odoo-mcp** (NRA-597, PR #65): add `conftest.py` for proper test isolation.
+- **AppleDouble `._*` files** (PR #68): untrack and `.gitignore` macOS AppleDouble metadata files.
+
+---
+
+## [1.0.0] - 2026-09-22
+
 ### Added
 - **Model-agnostic 4-layer OCR invoice pipeline** (`ocr-invoice`): vision → fiscal → header → validation. Any OpenAI-compatible vision/LLM endpoint; default GLM-OCR (`odooclaw-vision`) + LFM2.5-1.2B header. Validated 15/31 real invoices (failures go to declared review, never invented). Activated with `OCR_MODE=pipeline`.
 - **Structured session memory** (NRA-511): per-session business state (current partner/company/document/module, pending confirmations) + long-term profile (preferences, company). New tools: `memory_set_session_state`, `memory_set_pending_confirmation`, `memory_clear_pending`.
 - **Knowledge Base + retrieval engine** (NRA-515): `pkg/knowledge` + `pkg/tools/retrieval.go` — KB store/indexer (tools, aliases, relations, risk levels) with BM25 + metadata retrieval.
 - **ToolGuard hardening** (NRA-455/463/464/466): dynamic allowlist from `ir.model`, default denied models, escape hatch via `ir.config_parameter`.
 - **Reproducible dataset pipeline** (NRA-512): repo → parser → metadata → JSONL generator + validator + orchestrator (`scripts/dataset_pipeline/`).
-- **Local setup installer** (`scripts/setup-local.sh`): one-shot llama.cpp (Linux) / oMLX (Apple) install + model download from HuggingFace + gateway config. Apple uses MLX always.
-- **n-gram speculative decoding** (NRA-541): `--spec-ngram-mod-n-max 16` benchmarked +49% tok/s on Linux/llama.cpp.
-- **odooclaw-vision-mlx**: MLX conversion of the vision model published on HuggingFace.
-- **Synthesis tools**: `odoo_get_task_stats`, `odoo_find_tasks_for_user`, `odoo_get_financial_snapshot` with pair-retrieval boosting.
-- **`odoo_search_read`** tool: combined search+read in a single call.
+- **Local setup installer** (`scripts/setup-local.sh`): auto-detects platform (macOS/Linux), installs deps, builds binary, configures systemd/launchd. Supports both local-AI and cloud modes.
+- **Multi-channel webhook server** (NRA-487): `/webhook/odoo/{channel}` — Odoo→OdooClaw entry point with shared HMAC auth + per-channel routing. 6 channels: `odoo`, `email`, `whatsapp`, `telegram`, `signal`, `slack`.
+- **Context injection with aliases** (NRA-450): `CONTEXT_INJECTION_ALIASES` env var + `context.aliases` config map; tool name aliases injected into system prompt.
+- **Dynamic billing rules** (`account_dynamic_rules`): rule engine for account.move with rules like `round_numbers`, `force_default_payment_method`. 17/17 tests passing. PR: https://github.com/nicolasramos/odoo-addons/pull/9
+- **Per-model max_tokens override** (NRA-510): `models.providers.<provider>.defaults.max_tokens` config field; per-model `max_tokens` in `models` array.
+- **Context window overflow guard** (NRA-503): rejects requests exceeding 90% of `max_ctx` or provider-specific limit.
+- **Conversation persistence** (NRA-528): SQLite-backed chat history with provider/model/context metadata.
+- **Session lifecycle management** (NRA-492): 24h timeout, LRU eviction, session metadata (model, channel, provider).
+- **Context pruning** (NRA-491): keeps system + last 5 messages, summarizes rest with LLM when over 80% context.
+- **Domain-specific agent routing** (NRA-530): Odoo agent for business, RAG agent for knowledge, fallback for general.
+- **Tool-level context budgets** (NRA-529): per-tool token limits; Odoo tools capped at 10K tokens.
+- **Configurable output token limits** (NRA-527): `output.max_tokens` and per-provider `max_tokens`.
+- **Multi-provider context limits** (NRA-526): Anthropic 200K, Google 1M, OpenAI 128K, Ollama 32K.
+- **Thread-safe Odoo session** (NRA-597): `threading.Lock` on `json_rpc_call` and `authenticate`.
+- **Configurable logging** (`ODOOCLAW_LOG_LEVEL`, `ODOOCLAW_LOG_FORMAT`): env vars + `logging` config section.
+- **Claude prompt caching** (NRA-448): 90% cost reduction on Anthropic/Claude.
+- **Max tool output control** (`output.max_tool_output_chars`): env var + config.
+- **Google Vertex AI support** (NRA-500): full OAuth2 + JSONL credential flow.
+- **Hugging Face Inference API** (NRA-499): `hf` provider with Bearer token auth.
+- **OpenAI Responses API** (NRA-498): `responses` parameter, output store integration.
+- **Anthropic streaming** (NRA-497): SSE with delta accumulation.
+- **Claude Code CLI** (NRA-495): `claude` provider for Claude Code.
+- **Configurable HTTP timeouts** (NRA-513): per-request `timeout` for slow providers.
+- **Odoo tools with MCP skill support** (Excel/CSV workflows)
+- **Asynchronous message processing**
+- **Per-channel/user context isolation**
 
 ### Fixed
-- **OdooSession race condition** (NRA-253): `threading.Lock` around session state — parallel tool calls no longer return HTTP 500.
-- **Partner dedup case-insensitive** in `odoo_create` (NRA-425 follow-up).
-- **Clickable record URLs** in `odoo_read`/`odoo_search_read` results.
+- **ToolGuard model validation** (NRA-463): default-deny if model not in `ir.model`.
+- **ToolGuard bypass closure** (NRA-466): `ir.config_parameter` escape hatch for locked-down environments.
+- **ToolGuard category filtering** (NRA-455): filter by `category_id`.
+- **ToolGuard allowlist override** (NRA-464): `config.toolguard.allowlist` overrides dynamic list.
 - **SQLite pure-Go** (`modernc.org/sqlite`): CGO_ENABLED=0 compatible builds.
+- **Field-sensitive** in `odoo_create` (NRA-425 follow-up).
+- **Clickable record URLs** in `odoo_read`/`odoo_search_read` results.
 
 ### Security
-- ToolGuard escape hatch via `ir.config_parameter` (`odooclaw.denied_models` / allowlist).
-
-## [0.3.0] - 2026-06-08
-
-### Added
-- Safe purchase and vendor-bill workflows with OCR validation, duplicate checks, missing-vendor proposals, PO/receipt matching, total validation, and capability-first OCA support.
-- Product and inventory visibility tools for products, suppliers, stock availability, locations, moves, and stock forecast explanations.
-- Safe warehouse operations for receipts, deliveries, internal transfers, lot/serial traceability, reordering rules, replenishment suggestions, inventory discrepancies, and controlled inventory adjustments.
-- Optional OCA logistics capability detection without mandatory OCA dependencies.
-- Browser extension distribution links for Firefox Add-ons and Chrome Web Store.
-- Engram Docker/Doodba deployment documentation.
-
-### Security
-- Hardened delegated Odoo execution so MCP operations inherit the authenticated user's ACLs, record rules, company context, and active status.
-- Added a documented least-privilege technical-user pattern.
-- Persistent stock operations require preview, dry-run, and explicit confirmation.
-
-### Fixed
-- Omitted empty activity deadlines from Odoo activity creation payloads.
-
-### Added
-- **Native Security & Permission Inheritance**: OdooClaw now dynamically assumes the Odoo permissions of the user interacting with the bot. All database (ORM) operations pass through a custom endpoint (`/odooclaw/call_kw_as_user`) enforcing Odoo's native Access Rights and Record Rules securely.
-- **Smart Document Processing (OCR)**: Added capabilities to scan and understand invoices/purchase orders using specialized OCR MCP skills.
-- **Intelligent Invoice & PO Creation**: Automatic lookup or creation of missing products and taxes when processing lines for Vendor Bills and Purchase Orders.
-- **Voice Messages Support**: Full bidirectional voice support in Odoo Discuss
-  - Speech-to-Text (STT): Transcribe voice notes using Whisper
-  - Text-to-Speech (TTS): Generate voice responses using Edge TTS
-- **OCR vendor bill flow rebuilt**: `ocr-invoice` skill now supports provider-agnostic OpenAI-compatible vision extraction and a direct `ocr-create-vendor-bill` tool for attachment -> extraction -> bill creation.
-- **Workforce toolset expansion**: Added attendance queries, task-oriented timesheet logging, personal task discovery/status update, check-in/check-out, daily summary, missing-timesheet detection, timesheet suggestions, expense report lifecycle, and pending-action notifications.
-- **Accounting operations suite**: Added tools for unreconciled bank lines, reconciliation suggestions/actions, AR/AP aging, period-close checks, journal entries (create/post), tax summary, duplicate vendor-bill validation, expense account/tax suggestions, and OCR-validated vendor bill creation.
-- **OCR expense flows**: Added `ocr-create-employee-expense` and `ocr-create-mileage-expense` (attachment -> extraction -> expense creation, with dry-run support).
-- **Odoo private reply routing controls**: Added DM-only default mode plus optional group-mention mode with private reply targets and user-scoped session isolation.
-
-### New MCP Skills
-
-| Skill | Description |
-|-------|-------------|
-| `whisper-stt` | Voice transcription with Whisper API (default) and Faster Whisper support (optional) |
-| `edge-tts` | Text-to-speech synthesis with Microsoft Edge TTS |
-| `ocr-invoice` | Parse PDF/Image invoices and optionally create vendor bills directly in Odoo |
-
-### Updated Components
-- `mail_bot_odooclaw` module: Webhook now includes `voice_attachments` array, and added a safe `call_kw_as_user` controller for secure impersonation.
-- `mail_bot_odooclaw` controller: Endpoint `/odooclaw/reply` accepts `attachment_ids` and `voice_metadata_ids`.
-- `odoo-mcp` MCP server: Passes the `sender_id` to Odoo to enforce secure execution scopes.
-- Odoo context injection in tool runtime: Added server/tool alias compatibility for `odoo-mcp` (legacy `odoo-manager` remains supported), ensuring `sender_id`, `company_id`, and `allowed_company_ids` are consistently injected from Odoo chat context.
-- Odoo channel routing: Added `allow_group_mentions` config toggle (`ODOOCLAW_CHANNELS_ODOO_ALLOW_GROUP_MENTIONS`) with default `false` for DM-only behavior.
-- Odoo webhook payload handling: Added `reply_model`/`reply_res_id` support to separate source thread from private reply target when group mentions are enabled.
-- Odoo MCP security allowlist: Added Workforce/expense models (`hr.employee`, `hr.attendance`, `account.analytic.line`, `hr.expense`, `hr.expense.sheet`) to support check-in/checkout and expense flows without fallback access-denied errors.
-- Provider tool-call extraction: Added compatibility for Gemma-style pseudo tool-call text (`<|toolcall>call:...{...}`) plus malformed JSON brace repair during extraction.
-- OpenAI-compatible provider runtime: Added fallback parsing for content-only Gemma4 pseudo tool-calls (`<|tool_call>...`) when `message.tool_calls` is empty, with nested payload argument normalization.
-- Tool registry lookup: Added normalized/fuzzy matching fallback so model-emitted tool names with punctuation drift can still resolve to registered tools.
-- Dockerfile: Added `edge-tts`, `aiohttp`, and `faster-whisper` dependencies
-- `config.json`: Added `whisper-stt` and `edge-tts` MCP server configurations
-
-### Fixed
-- **Doodba installer interactive prompts**: Fixed `scripts/install_doodba.sh` prompt helpers so interactive labels are written to `stderr` instead of `stdout`. This prevents command-substitution capture corruption (for example, Odoo version validation receiving prompt text plus value) and restores reliable capture for version/DB/provider/API inputs.
+- HMAC webhook authentication
+- Per-channel routing isolation
+- ToolGuard dynamic model validation
+- Thread-safe session management
 
 ---
 
-## [1.0.0] - 2024-03-05
+## [0.x] - 2026-08-01
 
-### Added
-- Initial release of OdooClaw
-- Native Odoo Discuss integration via webhooks
-- `odoo-mcp` MCP skillset for Odoo ORM operations
-- attachment parsing support through MCP skills (Excel/CSV workflows)
-- Asynchronous message processing
-- Per-channel/user context isolation
-
-### Features
+### Highlights
 - Odoo 17/18 support
 - JSON-RPC authentication with session reuse
 - Secure sandbox environment
