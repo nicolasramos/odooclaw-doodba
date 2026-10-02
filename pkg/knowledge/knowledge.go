@@ -6,6 +6,8 @@ package knowledge
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -47,6 +49,7 @@ type KnowledgeEntry struct {
 	Metadata  map[string]string // flexible KV: "tool_name", "odoo_version", "module", etc.
 	RiskLevel RiskLevel
 	Aliases   []string // manual aliases for this entry
+	Source    string   // origin file path (set by SyncDirectory); empty for manual entries
 }
 
 // ToolKnowledge is a knowledge entry specifically about a registered tool.
@@ -65,30 +68,84 @@ type ToolKnowledge struct {
 // KnowledgeBase stores and retrieves domain-specific knowledge entries.
 // It uses SQLite FTS5 for full-text search over knowledge content.
 type KnowledgeBase struct {
-	db  *sql.DB
-	mu  sync.RWMutex
+	db   *sql.DB
+	path string
+	mu   sync.RWMutex
 }
 
 // NewKnowledgeBase creates a new in-memory knowledge base.
+// Deprecated for live use: prefer NewKnowledgeBaseAt so entries survive
+// restarts (NRA-3845). Kept for tests and ephemeral callers.
 func NewKnowledgeBase() (*KnowledgeBase, error) {
-	db, err := sql.Open("sqlite", ":memory:")
+	return newKnowledgeBase(":memory:")
+}
+
+// NewKnowledgeBaseAt creates (or opens) a persistent knowledge base stored at
+// dbPath, using the same WAL/lazy pattern as pkg/memory. Parent directories
+// are created as needed.
+func NewKnowledgeBaseAt(dbPath string) (*KnowledgeBase, error) {
+	if dbPath == "" || dbPath == ":memory:" {
+		return newKnowledgeBase(dbPath)
+	}
+	if dir := filepath.Dir(dbPath); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("create knowledge dir: %w", err)
+		}
+	}
+	return newKnowledgeBase(dbPath)
+}
+
+func newKnowledgeBase(dbPath string) (*KnowledgeBase, error) {
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open knowledge base: %w", err)
 	}
 
-	// Create FTS5 table for knowledge entries
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	pragmas := []string{
+		"PRAGMA foreign_keys = ON",
+		"PRAGMA journal_mode = WAL",
+		"PRAGMA synchronous = NORMAL",
+	}
+	for _, pragma := range pragmas {
+		if _, err := db.Exec(pragma); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("set knowledge pragma %q: %w", pragma, err)
+		}
+	}
+
+	// Create FTS5 table for knowledge entries.
+	// `source` carries the origin file path for directory-synced entries so
+	// resyncs can replace/delete exactly the rows ingested from a file.
 	_, err = db.Exec(`
-		CREATE VIRTUAL TABLE knowledge USING fts5(
+		CREATE VIRTUAL TABLE IF NOT EXISTS knowledge USING fts5(
 			title,
 			content,
 			tags,
 			category,
+			source UNINDEXED,
 			tokenize='porter unicode61'
 		)
 	`)
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to create knowledge table: %w", err)
+	}
+
+	// Track ingested files (mtime/size) for incremental directory sync.
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS knowledge_files (
+			source TEXT PRIMARY KEY,
+			modified INTEGER NOT NULL,
+			size INTEGER NOT NULL,
+			ingested_at INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to create knowledge_files table: %w", err)
 	}
 
 	// Create a regular table for metadata (aliases, risk, versions, etc.)
@@ -105,6 +162,19 @@ func NewKnowledgeBase() (*KnowledgeBase, error) {
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to create metadata table: %w", err)
+	}
+
+	// Additive migration: link the metadata row to its FTS5 row so metadata
+	// (area, module, risk, ...) can be read back and filtered through Search.
+	// The duplicate-column error makes this idempotent on existing databases.
+	if _, err := db.Exec(`ALTER TABLE knowledge_meta ADD COLUMN knowledge_id INTEGER`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column name") {
+		db.Close()
+		return nil, fmt.Errorf("failed to add knowledge_id column: %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_knowledge_meta_kid ON knowledge_meta(knowledge_id)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to index knowledge_id: %w", err)
 	}
 
 	// Tool knowledge table: links tools to their enriched metadata
@@ -126,7 +196,12 @@ func NewKnowledgeBase() (*KnowledgeBase, error) {
 		return nil, fmt.Errorf("failed to create tool_knowledge table: %w", err)
 	}
 
-	return &KnowledgeBase{db: db}, nil
+	return &KnowledgeBase{db: db, path: dbPath}, nil
+}
+
+// Path returns the file backing this knowledge base (":memory:" when ephemeral).
+func (kb *KnowledgeBase) Path() string {
+	return kb.path
 }
 
 // Add inserts a knowledge entry into the base.
@@ -137,12 +212,19 @@ func (kb *KnowledgeBase) Add(entry KnowledgeEntry) error {
 	tags := strings.Join(entry.Tags, " ")
 	aliases := strings.Join(entry.Aliases, ";")
 
-	_, err := kb.db.Exec(
-		"INSERT INTO knowledge(title, content, tags, category) VALUES (?, ?, ?, ?)",
-		entry.Title, entry.Content, tags, entry.Category,
+	res, err := kb.db.Exec(
+		"INSERT INTO knowledge(title, content, tags, category, source) VALUES (?, ?, ?, ?, ?)",
+		entry.Title, entry.Content, tags, entry.Category, entry.Source,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert knowledge: %w", err)
+	}
+
+	// Capture the FTS5 rowid so the metadata row can point back at it — this
+	// is what makes metadata readable and filterable from Search.
+	knowledgeID, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to read knowledge rowid: %w", err)
 	}
 
 	// Store metadata separately
@@ -153,8 +235,8 @@ func (kb *KnowledgeBase) Add(entry KnowledgeEntry) error {
 	}
 
 	_, err = kb.db.Exec(
-		"INSERT INTO knowledge_meta(title, category, aliases, risk_level, metadata) VALUES (?, ?, ?, ?, ?)",
-		entry.Title, entry.Category, aliases, riskStr, metaJSON,
+		"INSERT INTO knowledge_meta(knowledge_id, title, category, aliases, risk_level, metadata) VALUES (?, ?, ?, ?, ?, ?)",
+		knowledgeID, entry.Title, entry.Category, aliases, riskStr, metaJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert metadata: %w", err)
@@ -178,25 +260,42 @@ func (kb *KnowledgeBase) Search(query string, category string, limit int) ([]Kno
 		limit = 5
 	}
 
+	// NRA-3845: never pass the raw query to MATCH. A natural-language
+	// sentence ("¿cómo configuro el VeriFactu en Odoo?") is treated by
+	// FTS5 as an implicit AND over the whole phrase and returns 0 rows.
+	// Tokenize (NFC-normalize, drop stopwords) and join with OR, same
+	// pattern as pkg/memory.buildMatchQuery.
+	matchQuery := BuildMatchQuery(query)
+	if matchQuery == "" {
+		return nil, nil
+	}
+
 	var rows *sql.Rows
 	var err error
 
+	// NOTE: the FTS5 table must be named in full (no alias) in a MATCH clause —
+	// `k MATCH ?` fails with "no such column: k" in SQLite, which would silently
+	// send every search down the LIKE fallback.
 	if category != "" {
 		rows, err = kb.db.Query(`
-			SELECT title, content, tags, category
+			SELECT knowledge.title, knowledge.content, knowledge.tags, knowledge.category,
+			       COALESCE(m.risk_level, ''), COALESCE(m.metadata, '')
 			FROM knowledge
-			WHERE knowledge MATCH ? AND category = ?
+			LEFT JOIN knowledge_meta m ON m.knowledge_id = knowledge.rowid
+			WHERE knowledge MATCH ? AND knowledge.category = ?
 			ORDER BY rank
 			LIMIT ?
-		`, query, category, limit)
+		`, matchQuery, category, limit)
 	} else {
 		rows, err = kb.db.Query(`
-			SELECT title, content, tags, category
+			SELECT knowledge.title, knowledge.content, knowledge.tags, knowledge.category,
+			       COALESCE(m.risk_level, ''), COALESCE(m.metadata, '')
 			FROM knowledge
+			LEFT JOIN knowledge_meta m ON m.knowledge_id = knowledge.rowid
 			WHERE knowledge MATCH ?
 			ORDER BY rank
 			LIMIT ?
-		`, query, limit)
+		`, matchQuery, limit)
 	}
 
 	if err != nil {
@@ -208,15 +307,64 @@ func (kb *KnowledgeBase) Search(query string, category string, limit int) ([]Kno
 	var results []KnowledgeEntry
 	for rows.Next() {
 		var entry KnowledgeEntry
-		var tags string
-		if err := rows.Scan(&entry.Title, &entry.Content, &tags, &entry.Category); err != nil {
+		var tags, risk, metaJSON string
+		if err := rows.Scan(&entry.Title, &entry.Content, &tags, &entry.Category, &risk, &metaJSON); err != nil {
 			continue
 		}
 		entry.Tags = strings.Fields(tags)
+		entry.RiskLevel = RiskLevel(risk)
+		entry.Metadata = fromJSON(metaJSON)
 		results = append(results, entry)
 	}
 
 	return results, nil
+}
+
+// SearchByArea finds knowledge entries belonging to a functional Odoo area
+// ("accounting", "sales", ...) as declared in entry Metadata under the
+// "area" key. This is the retrieval path the proactive engine relies on:
+// FTS5 MATCH is unusable for natural-language questions, so the area — a
+// structured field — is what selects the corpus, and the free-text query only
+// ranks within it. An empty query returns the area's entries by rank order.
+func (kb *KnowledgeBase) SearchByArea(area string, query string, limit int) ([]KnowledgeEntry, error) {
+	kb.mu.RLock()
+	defer kb.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 5
+	}
+	area = strings.ToLower(strings.TrimSpace(area))
+	if area == "" {
+		return nil, fmt.Errorf("SearchByArea requires a non-empty area")
+	}
+
+	rows, err := kb.db.Query(`
+		SELECT k.title, k.content, k.tags, k.category,
+		       COALESCE(m.risk_level, ''), COALESCE(m.metadata, '')
+		FROM knowledge k
+		JOIN knowledge_meta m ON m.knowledge_id = k.rowid
+		WHERE lower(json_extract(m.metadata, '$.area')) = ?
+		ORDER BY k.rowid
+		LIMIT ?
+	`, area, limit)
+	if err != nil {
+		return nil, fmt.Errorf("area lookup failed: %w", err)
+	}
+	defer rows.Close()
+
+	var results []KnowledgeEntry
+	for rows.Next() {
+		var entry KnowledgeEntry
+		var tags, risk, metaJSON string
+		if err := rows.Scan(&entry.Title, &entry.Content, &tags, &entry.Category, &risk, &metaJSON); err != nil {
+			continue
+		}
+		entry.Tags = strings.Fields(tags)
+		entry.RiskLevel = RiskLevel(risk)
+		entry.Metadata = fromJSON(metaJSON)
+		results = append(results, entry)
+	}
+	return results, rows.Err()
 }
 
 // fallbackSearch does a LIKE-based search when FTS5 fails.

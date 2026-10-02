@@ -79,6 +79,9 @@ var (
 	// absolutePathPattern matches absolute file paths in commands (Unix and Windows).
 	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[^\s\"']+`)
 
+	// urlScheme is the marker that an argument is a URL rather than a path.
+	urlScheme = "://"
+
 	// safePaths are kernel pseudo-devices that are always safe to reference in
 	// commands, regardless of workspace restriction. They contain no user data
 	// and cannot cause destructive writes.
@@ -287,6 +290,74 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 	}
 }
 
+// wordByte reports whether b can continue a filename token. Used to tell a real
+// absolute path (`cat /etc/x`, preceded by a space) from the `/`-match of a
+// relative path (`cat state/x.py`, where the match starts mid-token at "/x.py").
+// urlArgRanges returns the byte ranges of arguments that contain a URI scheme
+// (`://`). Such an argument is a URL, not a filesystem path: URLs cannot
+// contain whitespace, so the argument runs from the whitespace before the
+// scheme to the whitespace after the last non-space byte.
+//
+// This exists because the absolute-path token regex also matches URL path
+// fragments. `curl -s http://172.18.0.1:18790/web/login` yields the token
+// "/web/login", which filepath.Abs roots at "/" and the workspace check then
+// rejects as "path outside working dir" - for a command that never touches the
+// filesystem at all. The Odoo connector's own debugging workflow (reading an
+// endpoint out of a config, grepping for /web/content) is what generates these,
+// and each false rejection burns a tool iteration.
+func urlArgRanges(cmd string) [][2]int {
+	var ranges [][2]int
+	from := 0
+	for {
+		idx := strings.Index(cmd[from:], urlScheme)
+		if idx < 0 {
+			return ranges
+		}
+		at := from + idx
+
+		// Walk back to the start of the argument.
+		start := at
+		for start > 0 && !isShellSpace(cmd[start-1]) {
+			start--
+		}
+		// Walk forward to the end of the argument.
+		end := at + len(urlScheme)
+		for end < len(cmd) && !isShellSpace(cmd[end]) {
+			end++
+		}
+
+		ranges = append(ranges, [2]int{start, end})
+		from = end
+		if from >= len(cmd) {
+			return ranges
+		}
+	}
+}
+
+func isShellSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+// inAnyRange reports whether pos falls inside any [start, end) range.
+func inAnyRange(pos int, ranges [][2]int) bool {
+	for _, r := range ranges {
+		if pos >= r[0] && pos < r[1] {
+			return true
+		}
+	}
+	return false
+}
+
+func wordByte(b byte) bool {
+	switch {
+	case b >= 'a' && b <= 'z', b >= 'A' && b <= 'Z', b >= '0' && b <= '9':
+		return true
+	case b == '_' || b == '-' || b == '.' || b == '/':
+		return true
+	}
+	return false
+}
+
 func (t *ExecTool) guardCommand(command, cwd string) string {
 	cmd := strings.TrimSpace(command)
 	lower := strings.ToLower(cmd)
@@ -331,19 +402,46 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 			return ""
 		}
 
-		matches := absolutePathPattern.FindAllString(cmd, -1)
+		matches := absolutePathPattern.FindAllStringIndex(cmd, -1)
+		urlArgs := urlArgRanges(cmd)
 
-		for _, raw := range matches {
-			p, err := filepath.Abs(raw)
+		for _, m := range matches {
+			start, end := m[0], m[1]
+
+			// A separator inside a longer token is not the start of an absolute
+			// path. In `cat state/hours_sep.py` the pattern matches
+			// "/hours_sep.py" — a *relative* path that resolves inside the
+			// workspace — but filepath.Abs rooted it at "/" and the command was
+			// rejected as "outside working dir". That broke every legitimate
+			// relative path containing a slash.
+			if start > 0 && wordByte(cmd[start-1]) {
+				continue
+			}
+
+			// A token inside an argument carrying a URI scheme is a URL path
+			// fragment, not a filesystem path. See urlArgRanges.
+			if inAnyRange(start, urlArgs) {
+				continue
+			}
+
+			// The token pattern also swallows trailing shell punctuation, which
+			// turned the safe "/dev/null" of a `2>/dev/null;` redirection into
+			// "/dev/null;" and missed the safePaths lookup.
+			p := strings.TrimRight(cmd[start:end], ";|&,)")
+			if p == "" {
+				continue
+			}
+
+			absPath, err := filepath.Abs(p)
 			if err != nil {
 				continue
 			}
 
-			if safePaths[p] {
+			if safePaths[absPath] {
 				continue
 			}
 
-			rel, err := filepath.Rel(cwdPath, p)
+			rel, err := filepath.Rel(cwdPath, absPath)
 			if err != nil {
 				continue
 			}
