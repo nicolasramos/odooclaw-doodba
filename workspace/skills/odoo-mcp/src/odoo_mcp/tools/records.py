@@ -1,5 +1,10 @@
 from typing import Any, Dict, List, Optional
 from odoo_mcp.core.client import OdooClient
+from odoo_mcp.core.field_schema import (
+    _field_cache,
+    _field_cache_timestamps,
+    get_field_schema,
+)
 from odoo_mcp.security.guards import guard_model_access, guard_write_fields
 from odoo_mcp.security.audit import audit_action
 from odoo_mcp.core.domains import validate_domain
@@ -7,37 +12,19 @@ from odoo_mcp.core.serializers import serialize_records, RECORD_URL_KEY
 from odoo_mcp.services.partner_service import find_existing_partner_id
 from odoo_mcp.core.exceptions import OdooRPCError
 
-# Cache for validated field sets: {model_name: set_of_field_names}
-_field_cache: Dict[str, set] = {}
-_FIELD_CACHE_TTL_SECONDS = 60.0
-_field_cache_timestamps: Dict[str, float] = {}
+# ``_field_cache`` / ``_field_cache_timestamps`` come from
+# odoo_mcp.core.field_schema: the cache is shared with the summary services, so
+# one fields_get per model per 60s serves both validating a read and building a
+# summary. Tests clear it through this module, the path they already use.
 
 
 def _get_model_fields(client: OdooClient, model: str, sender_id: int) -> set:
     """Return the set of valid field names for *model* via fields_get.
 
-    Results are cached per model with a short TTL to avoid hammering
-    ir.model.fields on every read/search_read call.
+    Results come from the shared schema cache (60s TTL), so validating a read
+    and summarising a record never fetch the same schema twice.
     """
-    now = _field_cache_timestamps.get(model, 0.0)
-    if model in _field_cache and (now - _field_cache_timestamps[model]) < _FIELD_CACHE_TTL_SECONDS:
-        return _field_cache[model]
-
-    try:
-        fields_info = client.call_kw(model, "fields_get", sender_id=sender_id)
-        if isinstance(fields_info, dict):
-            result = set(fields_info.keys())
-        else:
-            result = set()
-    except Exception:
-        result = set()
-
-    _field_cache[model] = result
-    _field_cache_timestamps[model] = now if now else 0.0
-    # Store current time properly
-    import time
-    _field_cache_timestamps[model] = time.monotonic()
-    return result
+    return set(get_field_schema(client, model, sender_id))
 
 
 def _validate_fields(
