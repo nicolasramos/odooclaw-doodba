@@ -541,6 +541,14 @@ def odoo_get_partner_summary(
     partner_id: int,
     sender_id: int | None = None,
 ) -> dict:
+    """Summary of one partner: every field this instance fills in, plus open documents.
+
+    The field list is discovered from the instance (fields_get), so custom
+    fields, `mobile`, `street`, ... are included without anyone maintaining a
+    list; empty values are dropped. `financial_balance` only appears when
+    accounting is installed, and the document counts are null when `sale` /
+    `account` are not.
+    """
     with measure_time("odoo_get_partner_summary"):
         client = get_odoo_client()
         return partners.odoo_get_partner_summary(
@@ -798,6 +806,13 @@ def odoo_get_record_summary(
     res_id: int,
     sender_id: int | None = None,
 ) -> dict:
+    """Summary of one record of any model: the non-empty fields this instance exposes.
+
+    Fields come from fields_get on the running instance, not from a table, so
+    the summary covers every Odoo version and every custom module. When the
+    model does not exist here the answer is an error dict that points at
+    odoo_get_model_schema.
+    """
     with measure_time("odoo_get_record_summary"):
         client = get_odoo_client()
         return generic.odoo_get_record_summary(
