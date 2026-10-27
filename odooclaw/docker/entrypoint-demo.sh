@@ -30,6 +30,15 @@ mkdir -p "${CONFIG_DIR}"
 # (tools fail with 401) and its replies are refused.
 : "${ODOOCLAW_REPLY_TOKEN:?ODOOCLAW_REPLY_TOKEN is required}"
 
+# The MCP server key below carries no hyphen on purpose. It becomes the tool
+# prefix (mcp_<server>_<tool>), and the demo's model (LFM2.5 on oMLX) emits its
+# tool calls in Liquid's bracket dialect, `[name(arg=value)]`. oMLX's parser
+# rejects a hyphenated name ("No function provided") and then strips the marker,
+# so the gateway receives plain text, never calls the tool, and the bot answers
+# with its preamble ("voy a consultar...") and nothing else. Measured against the
+# .23 endpoint: the same tool called mcp_odoo-manager_odoo_count comes back with
+# no tool_calls and empty content; called mcp_odoo_manager_odoo_count it returns
+# a native tool_calls payload. Keep it underscore-only if the model changes.
 cat > "${CONFIG_FILE}" <<JSON
 {
   "agents": {
@@ -65,7 +74,7 @@ cat > "${CONFIG_FILE}" <<JSON
     "mcp": {
       "enabled": true,
       "servers": {
-        "odoo-manager": {
+        "odoo_manager": {
           "enabled": true,
           "command": "python3",
           "args": ["-m", "odoo_mcp.server"],
