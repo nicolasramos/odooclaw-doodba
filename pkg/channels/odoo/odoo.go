@@ -59,14 +59,40 @@ type ChatterMessage struct {
 	Body   string `json:"body"`
 }
 
+// FlexInt accepts a number, null or a boolean, because the Odoo module sends
+// `author_user_id: ... or False` and a bare false used to fail the whole
+// webhook decode ("cannot unmarshal bool into ... of type int") before the
+// message was ever processed.
+type FlexInt int
+
+func (f *FlexInt) UnmarshalJSON(data []byte) error {
+	raw := strings.TrimSpace(string(data))
+	switch raw {
+	case "", "null", "false", "\"\"":
+		*f = 0
+		return nil
+	case "true":
+		*f = 0
+		return nil
+	}
+	// Odoo also ships numeric strings in some fields.
+	raw = strings.Trim(raw, `"`)
+	var n int
+	if err := json.Unmarshal([]byte(raw), &n); err != nil {
+		return err
+	}
+	*f = FlexInt(n)
+	return nil
+}
+
 type OdooWebhookPayload struct {
 	MessageID         int              `json:"message_id"`
 	Model             string           `json:"model"`
 	ResID             int              `json:"res_id"`
 	ReplyModel        string           `json:"reply_model"`
-	ReplyResID        int              `json:"reply_res_id"`
+	ReplyResID        FlexInt          `json:"reply_res_id"`
 	AuthorID          int              `json:"author_id"`
-	AuthorUserID      int              `json:"author_user_id"`
+	AuthorUserID      FlexInt          `json:"author_user_id"`
 	AuthorName        string           `json:"author_name"`
 	Body              string           `json:"body"`
 	IsDM              bool             `json:"is_dm"`
@@ -153,7 +179,14 @@ func (c *OdooChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		reply.ReplyToken = token.(string)
 	} else {
 		// No token — Odoo would reject this reply anyway, skip LLM cost
-		slog.Warn("No reply token for chatID, skipping send", "chatID", msg.ChatID)
+		pending := make([]string, 0, 4)
+		c.pendingTokens.Range(func(key, _ any) bool {
+			if s, ok := key.(string); ok {
+				pending = append(pending, s)
+			}
+			return true
+		})
+		slog.Warn("No reply token for chatID, skipping send", "chatID", msg.ChatID, "pending", pending)
 		return nil
 	}
 
@@ -181,7 +214,16 @@ func (c *OdooChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Error("Odoo returned non-200 status", "status", resp.StatusCode)
+		// The body carries the reason ("Invalid or expired reply_token",
+		// "Unauthorized", ...). Without it a 403 during a live conversation is
+		// indistinguishable from a bad IP, a stale token or a missing one.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		slog.Error("Odoo returned non-200 status",
+			"status", resp.StatusCode,
+			"model", reply.Model,
+			"res_id", reply.ResID,
+			"token_len", len(reply.ReplyToken),
+			"body", strings.TrimSpace(string(body)))
 		return fmt.Errorf("odoo api error: %d", resp.StatusCode)
 	}
 
@@ -256,15 +298,15 @@ func (c *OdooChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if replyModel == "" {
 		replyModel = payload.Model
 	}
-	replyResID := payload.ReplyResID
+	replyResID := int(payload.ReplyResID)
 	if replyResID <= 0 {
 		replyResID = payload.ResID
 	}
 	replyChatID := fmt.Sprintf("%s_%d", replyModel, replyResID)
 	hasPrivateReplyTarget := !payload.IsDM && payload.ReplyModel != "" && payload.ReplyResID > 0 &&
-		(payload.ReplyModel != payload.Model || payload.ReplyResID != payload.ResID)
+		(payload.ReplyModel != payload.Model || int(payload.ReplyResID) != payload.ResID)
 
-	senderNumericID := payload.AuthorUserID
+	senderNumericID := int(payload.AuthorUserID)
 	if senderNumericID <= 0 {
 		senderNumericID = payload.AuthorID
 	}
@@ -338,6 +380,7 @@ func (c *OdooChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.pendingTokens.Store(replyChatID, payload.ReplyToken)
+	slog.Info("Registered Odoo reply token", "chatID", replyChatID, "message_id", payload.MessageID)
 
 	c.HandleMessage(r.Context(), peer, strconv.Itoa(payload.MessageID), senderID, replyChatID, content, mediaPaths, metadata, sender)
 

@@ -51,6 +51,14 @@ class OdooOCRSkill:
             }
 
         self.session = requests.Session()
+        # The Odoo module guards /odooclaw/* with a shared secret read from the
+        # X-OdooClaw-Token header: without it a delegated call is answered with
+        # 401 "invalid token" and the bill is never created. The gateway already
+        # ships that secret in ODOOCLAW_REPLY_TOKEN (the odoo-mcp server sends it
+        # the same way), so this client must send it too.
+        shared_token = os.environ.get("ODOOCLAW_REPLY_TOKEN", "").strip()
+        if shared_token:
+            self.session.headers["X-OdooClaw-Token"] = shared_token
         payload = {
             "jsonrpc": "2.0",
             "method": "call",
@@ -90,25 +98,33 @@ class OdooOCRSkill:
             return err
 
         endpoint = "/web/dataset/call_kw"
-        params = {
-            "model": model,
-            "method": method,
-            "args": args,
-            "kwargs": kwargs,
-        }
-
         if self.runtime_sender_id is not None:
             endpoint = "/odooclaw/call_kw_as_user"
-            params["user_id"] = self.runtime_sender_id
+            # This endpoint takes a FLAT payload: the module reads user_id,
+            # model, method, args and kwargs from the top level. Wrapping them
+            # in a JSON-RPC envelope (`params`) is answered with
+            # 400 "Missing user_id, model, or method".
+            payload = {
+                "user_id": self.runtime_sender_id,
+                "model": model,
+                "method": method,
+                "args": args,
+                "kwargs": kwargs,
+            }
             if self.runtime_rpc_context:
-                params["context"] = self.runtime_rpc_context
-
-        payload = {
-            "jsonrpc": "2.0",
-            "method": "call",
-            "id": 2,
-            "params": params,
-        }
+                payload["context"] = self.runtime_rpc_context
+        else:
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "call",
+                "id": 2,
+                "params": {
+                    "model": model,
+                    "method": method,
+                    "args": args,
+                    "kwargs": kwargs,
+                },
+            }
 
         try:
             assert self.session is not None
@@ -122,11 +138,24 @@ class OdooOCRSkill:
                     "message", "unknown"
                 )
                 return {"isError": True, "content": f"Odoo error: {msg}"}
-            return {"result": data.get("result")}
+            # The delegated endpoint answers {"status": "ok", "result": ...};
+            # the JSON-RPC one answers {"result": ...}.
+            if data.get("status") == "error":
+                return {"isError": True, "content": f"Odoo error: {data.get('reason')}"}
+            if "result" in data:
+                return {"result": data.get("result")}
+            return {"result": None}
         except Exception as exc:
+            detail = ""
+            response = getattr(exc, "response", None)
+            if response is not None:
+                try:
+                    detail = f" ({response.json().get('reason') or response.text[:200]})"
+                except Exception:  # noqa: BLE001 — body is not JSON
+                    detail = ""
             return {
                 "isError": True,
-                "content": f"Odoo RPC error ({model}.{method}): {str(exc)}",
+                "content": f"Odoo RPC error ({model}.{method}): {str(exc)}{detail}",
             }
 
     def _download_attachment(self, attachment_id: int):
@@ -179,6 +208,173 @@ class OdooOCRSkill:
 
     def _to_data_url(self, raw: bytes, mimetype: str) -> str:
         return f"data:{mimetype};base64,{base64.b64encode(raw).decode('utf-8')}"
+
+    # ------------------------------------------------------------------
+    # read_document: attachment bytes -> text -> structured block
+    # ------------------------------------------------------------------
+    def _read_timeout(self) -> int:
+        try:
+            return int(float(os.environ.get("OCR_READ_TIMEOUT_SECONDS", "120")))
+        except (TypeError, ValueError):
+            return 120
+
+    def _vision_endpoint(self):
+        """Resolve the OCR vision endpoint, pipeline env first, chat env second."""
+        base = (
+            os.environ.get("OCR_PIPELINE_VISION_URL")
+            or os.environ.get("VISION_API_BASE")
+            or ""
+        ).rstrip("/")
+        model = (
+            os.environ.get("OCR_PIPELINE_VISION_MODEL")
+            or os.environ.get("VISION_MODEL")
+            or ""
+        )
+        key = os.environ.get("OCR_PIPELINE_VISION_KEY") or self.openai_api_key or ""
+        return base, model, key
+
+    def _vision_ocr_text(self, image_bytes, mimetype="image/png"):
+        """Image bytes -> text, through any OpenAI-compatible vision model.
+
+        Kept separate from ``_call_vision``: that one asks a small model for a
+        JSON invoice and throws the text away, which is useless when the
+        document is not an invoice. Here the text is the product.
+        """
+        base, model, key = self._vision_endpoint()
+        if not base or not model:
+            raise RuntimeError(
+                "no vision endpoint configured "
+                "(OCR_PIPELINE_VISION_URL/OCR_PIPELINE_VISION_MODEL or VISION_API_BASE/VISION_MODEL)"
+            )
+
+        from pipeline import VISION_PROMPT
+
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": self._to_data_url(image_bytes, mimetype)},
+                        },
+                        {"type": "text", "text": VISION_PROMPT},
+                    ],
+                }
+            ],
+            "temperature": 0,
+            "max_tokens": 2048,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        headers = {"Content-Type": "application/json"}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+
+        response = requests.post(
+            f"{base}/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=self._read_timeout(),
+        )
+        response.raise_for_status()
+        message = response.json().get("choices", [{}])[0].get("message", {})
+        return message.get("content") or message.get("reasoning_content") or ""
+
+    def _pipeline_runner(self):
+        """Return ``text -> structured block`` running the 4-layer pipeline.
+
+        Configured from the environment at call time so one container image can
+        point at any OpenAI-compatible pair of endpoints.
+        """
+        timeout = self._read_timeout()
+
+        def run(text):
+            from pipeline import OCRConfig, run_pipeline_from_text
+
+            cfg = OCRConfig(
+                vision_base_url=os.environ.get(
+                    "OCR_PIPELINE_VISION_URL", "http://127.0.0.1:8093/v1"
+                ),
+                vision_model=os.environ.get("OCR_PIPELINE_VISION_MODEL", "odooclaw-vision"),
+                vision_api_key=os.environ.get("OCR_PIPELINE_VISION_KEY", ""),
+                llm_base_url=os.environ.get("OCR_PIPELINE_LLM_URL", "http://127.0.0.1:8000/v1"),
+                llm_model=os.environ.get(
+                    "OCR_PIPELINE_LLM_MODEL", "LFM2.5-1.2B-Instruct-MLX-4bit"
+                ),
+                llm_api_key=os.environ.get("OCR_PIPELINE_LLM_KEY", ""),
+                ocr_timeout=timeout,
+                llm_timeout=timeout,
+            )
+            return run_pipeline_from_text(text, cfg)
+
+        return run
+
+    def read_document(
+        self,
+        attachment_id: int,
+        sender_id=None,
+        max_pages=None,
+        include_text: bool = True,
+        company_id=None,
+        allowed_company_ids=None,
+    ):
+        """Download an attachment and return its text plus invoice fields.
+
+        The whole sequence the caller used to script by hand, in one call:
+        decode ``ir.attachment.datas``, write a scratch file, read the PDF text
+        layer (or OCR the rendered pages), run the 4-layer pipeline, delete the
+        scratch file. The numeric fields come from the deterministic parser;
+        the model only interprets the header.
+        """
+        self.runtime_sender_id = self._to_int(sender_id)
+        self.runtime_rpc_context = self._build_rpc_context(
+            company_id=company_id, allowed_company_ids=allowed_company_ids
+        )
+
+        attachment = self._download_attachment(attachment_id)
+        if attachment.get("isError"):
+            return attachment
+
+        try:
+            from document_reader import DocumentReaderError, read_document_bytes
+        except ImportError as exc:  # pragma: no cover - deployment guard
+            return {
+                "isError": True,
+                "content": f"document_reader.py must sit next to the MCP server: {exc}",
+            }
+
+        max_pages_value = self.ocr_max_pages
+        if max_pages is not None:
+            requested = self._to_int(max_pages)
+            if requested and 1 <= requested <= 20:
+                max_pages_value = requested
+
+        workdir = os.environ.get("OCR_READ_WORKDIR") or None
+        if workdir and not os.path.isdir(workdir):
+            workdir = None
+
+        try:
+            payload = read_document_bytes(
+                attachment["data"],
+                filename=attachment["name"],
+                mimetype=attachment["mimetype"],
+                attachment_id=attachment_id,
+                max_pages=max_pages_value,
+                dpi=self.ocr_image_dpi,
+                ocr_image=self._vision_ocr_text,
+                pipeline_runner=self._pipeline_runner(),
+                timeout=self._read_timeout(),
+                workdir=workdir,
+            )
+        except DocumentReaderError as exc:
+            return {"isError": True, "content": str(exc)}
+
+        if not include_text:
+            payload.pop("text", None)
+            payload.pop("text_truncated", None)
+
+        return {"content": json.dumps(payload, ensure_ascii=False)}
 
     def _extract_first_json(self, text: str):
         if not text:
@@ -618,6 +814,21 @@ class OdooOCRSkill:
                 )
 
         return create_res
+
+    @staticmethod
+    def _has_usable_amounts(invoice_data):
+        """True when the extraction carries a number a human could book.
+
+        ``_normalize_invoice`` fabricates a single 0.00 line when it has none so
+        the RPC never receives an empty list; that placeholder must not be read
+        as real content, hence the check on the amounts as well as the lines.
+        """
+        if invoice_data.get("amount_total") or invoice_data.get("amount_untaxed"):
+            return True
+        for line in invoice_data.get("invoice_line_ids") or []:
+            if line.get("price_unit") or line.get("price_subtotal"):
+                return True
+        return False
 
     def _create_vendor_bill(self, invoice_data, attachment):
         partner_res = self._find_or_create_partner(
@@ -1147,6 +1358,81 @@ class OdooOCRSkill:
         }
         return {"invoice_data": invoice_data, "raw_text": data.get("_raw_text", "")}
 
+    def _call_document_reader(self, attachment):
+        """Read the document the way the ``read_document`` tool does.
+
+        One implementation, two entry points: the text comes from the PDF text
+        layer via ``pdftotext -layout`` and the numbers from the deterministic
+        fiscal parser, so the chat path and the tool path cannot disagree.
+
+        The vision engine is deliberately NOT injected here. A page with no text
+        layer raises ``DocumentReaderError`` and the caller falls through to the
+        existing engines (RapidOCR, an external OCR, vision last), which is what
+        keeps a deployment without a vision model from answering with an empty
+        invoice.
+        """
+        try:
+            from document_reader import DocumentReaderError, read_document_bytes
+        except ImportError as exc:  # pragma: no cover - deployment guard
+            return {
+                "isError": True,
+                "content": f"document_reader.py must sit next to the MCP server: {exc}",
+            }
+
+        workdir = os.environ.get("OCR_READ_WORKDIR") or None
+        if workdir and not os.path.isdir(workdir):
+            workdir = None
+
+        try:
+            payload = read_document_bytes(
+                attachment["data"],
+                filename=attachment.get("name") or "",
+                mimetype=attachment.get("mimetype") or "",
+                attachment_id=attachment.get("attachment_id"),
+                max_pages=self.ocr_max_pages,
+                dpi=self.ocr_image_dpi,
+                ocr_image=None,
+                pipeline_runner=self._pipeline_runner(),
+                timeout=self._read_timeout(),
+                workdir=workdir,
+            )
+        except DocumentReaderError as exc:
+            return {"isError": True, "content": str(exc)}
+
+        # A header without a total is not an invoice we can book: let the other
+        # engines try before handing the parser's half-answer to the caller.
+        if payload.get("amount_total") is None:
+            return {
+                "isError": True,
+                "content": (
+                    "the text layer carried no total "
+                    f"(text_source={payload.get('text_source')}, "
+                    f"issues={payload.get('issues')})"
+                ),
+            }
+
+        return {
+            "invoice_data": {
+                "partner_name": payload.get("partner_name") or "",
+                "vendor_name": payload.get("partner_name") or "",
+                "vendor_vat": payload.get("vat") or "",
+                "invoice_number": payload.get("invoice_number") or "",
+                "invoice_date": payload.get("invoice_date") or "",
+                "amount_total": payload.get("amount_total"),
+                "subtotal": payload.get("amount_untaxed"),
+                "amount_untaxed": payload.get("amount_untaxed"),
+                "amount_tax": payload.get("amount_tax"),
+                "currency": payload.get("currency") or "EUR",
+                "invoice_line_ids": payload.get("lines") or [],
+                "fiscal_found": payload.get("fiscal_found", False),
+                "is_reverse_charge": payload.get("is_reverse_charge", False),
+                "validation_ok": payload.get("validation_ok", False),
+                "validation_issues": payload.get("issues", []),
+            },
+            "raw_text": payload.get("text"),
+            "text_source": payload.get("text_source"),
+        }
+
     def extract_invoice(
         self,
         attachment_id: int,
@@ -1166,6 +1452,19 @@ class OdooOCRSkill:
         extracted = None
         raw_text = None
 
+        # 0) Capa de texto del PDF + parser determinista: lo mismo que ya hace
+        # la tool read_document. Va ANTES de cualquier modelo porque los importes
+        # salen del parser fiscal, no de una opinión. Un escaneo sin capa de
+        # texto no entra aquí y cae a los motores de abajo, con la visión última.
+        doc_res = self._call_document_reader(attachment)
+        if not doc_res.get("isError"):
+            extracted = doc_res.get("invoice_data") or {}
+            raw_text = doc_res.get("raw_text")
+            log(
+                f"text-layer path used for attachment {attachment_id} "
+                f"(source={doc_res.get('text_source')})"
+            )
+
         # -1) Camino rápido: texto OCR extraído EN EL NAVEGADOR (runonweb/ocr,
         # NRA-3968). Si el cliente ya puso runonweb_ocr_text en el attachment,
         # se saltan las capas de visión/OCR del servidor: la imagen nunca
@@ -1174,24 +1473,27 @@ class OdooOCRSkill:
         # falla, seguimos con el flujo normal.
         client_text = None
         client_conf = 0.0
-        try:
-            client_res = self._odoo_call(
-                "ir.attachment",
-                "read",
-                [[attachment_id]],
-                {"fields": ["id", "runonweb_ocr_text", "runonweb_ocr_confidence"]},
-            )
-            if not client_res.get("isError"):
-                client_rows = client_res.get("result") or []
-                if client_rows:
-                    client_text = (client_rows[0].get("runonweb_ocr_text") or "").strip()
-                    try:
-                        client_conf = float(client_rows[0].get("runonweb_ocr_confidence") or 0.0)
-                    except (TypeError, ValueError):
-                        client_conf = 0.0
-        except Exception:  # noqa: BLE001 — field absent / older addon: ignore
-            client_text = None
-            client_conf = 0.0
+        if extracted is None:
+            try:
+                client_res = self._odoo_call(
+                    "ir.attachment",
+                    "read",
+                    [[attachment_id]],
+                    {"fields": ["id", "runonweb_ocr_text", "runonweb_ocr_confidence"]},
+                )
+                if not client_res.get("isError"):
+                    client_rows = client_res.get("result") or []
+                    if client_rows:
+                        client_text = (client_rows[0].get("runonweb_ocr_text") or "").strip()
+                        try:
+                            client_conf = float(
+                                client_rows[0].get("runonweb_ocr_confidence") or 0.0
+                            )
+                        except (TypeError, ValueError):
+                            client_conf = 0.0
+            except Exception:  # noqa: BLE001 — field absent / older addon: ignore
+                client_text = None
+                client_conf = 0.0
 
         # Confidence gate: a low-confidence client OCR is treated as "no client
         # text" so the server engines (vision/RapidOCR) get a chance instead of
@@ -1346,6 +1648,22 @@ class OdooOCRSkill:
                 )
             }
 
+        # A bill with no amounts is worse than no bill: it looks booked, it
+        # reaches the accountant, and the original document is already attached
+        # to it. When every engine failed to read a number, say so and create
+        # nothing instead of writing a 0.00 draft.
+        if not self._has_usable_amounts(invoice_data):
+            return {
+                "isError": True,
+                "content": (
+                    "Refusing to create a vendor bill with no amounts: the document gave "
+                    f"no total and no priced line (ref={invoice_data.get('ref') or ''!r}, "
+                    f"partner={invoice_data.get('partner_name') or ''!r}, "
+                    f"attachment={attachment_id}). Nothing was created. Send a PDF with a "
+                    "text layer and retry, or configure an OCR engine for scans."
+                ),
+            }
+
         create_res = self._create_vendor_bill(invoice_data, attachment)
         if create_res.get("isError"):
             return create_res
@@ -1483,6 +1801,48 @@ ocr = OdooOCRSkill()
 
 def build_tools():
     return [
+        {
+            "name": "read_document",
+            "description": (
+                "Read an attached document from Odoo and return its text. For an invoice it "
+                "also returns the structured fields (partner_name, invoice_number, "
+                "amount_total, lines) plus validation issues. Downloads the attachment, "
+                "writes a scratch file, reads the PDF text layer or OCRs the pages, runs the "
+                "4-layer pipeline and cleans up. Use it before answering about an attached "
+                "document; never guess its content."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "attachment_id": {
+                        "type": "integer",
+                        "description": "ir.attachment ID of the document",
+                    },
+                    "max_pages": {
+                        "type": "integer",
+                        "description": "PDF pages to read (default 4, capped at 20)",
+                    },
+                    "include_text": {
+                        "type": "boolean",
+                        "description": "Include the extracted text in the answer (default true)",
+                    },
+                    "sender_id": {
+                        "type": "integer",
+                        "description": "res.users ID of the message author (for permission/company inheritance)",
+                    },
+                    "company_id": {
+                        "type": "integer",
+                        "description": "Active company ID from Odoo context",
+                    },
+                    "allowed_company_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Allowed company IDs from Odoo context",
+                    },
+                },
+                "required": ["attachment_id"],
+            },
+        },
         {
             "name": "ocr-invoice",
             "description": "Extract structured invoice data from an Odoo attachment (PDF/image).",
@@ -1633,7 +1993,7 @@ def handle_request(request):
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "ocr-invoice-mcp", "version": "3.1.0"},
+                "serverInfo": {"name": "ocr-invoice-mcp", "version": "3.2.0"},
             },
         }
 
@@ -1700,6 +2060,18 @@ def handle_request(request):
             "isError": True,
             "content": "'attachment_id' is required and must be integer",
         }
+    elif name == "read_document":
+        include_text = arguments.get("include_text", True)
+        if isinstance(include_text, str):
+            include_text = include_text.strip().lower() not in ("false", "0", "no", "")
+        res = ocr.read_document(
+            attachment_id,
+            sender_id=sender_id,
+            max_pages=arguments.get("max_pages"),
+            include_text=bool(include_text),
+            company_id=company_id,
+            allowed_company_ids=allowed_company_ids,
+        )
     elif name == "ocr-invoice":
         res = ocr.extract_invoice(
             attachment_id,
@@ -1756,7 +2128,7 @@ def handle_request(request):
 
 
 def main():
-    log("OCR Invoice MCP server v3.1 started")
+    log("OCR Invoice MCP server v3.2 started")
     for line in sys.stdin:
         line = line.strip()
         if not line:
