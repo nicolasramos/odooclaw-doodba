@@ -1,8 +1,8 @@
 ---
 name: ocr-invoice
 description: Extract supplier invoice data from Odoo attachment (PDF/image) using an OpenAI-compatible vision model and optionally create the vendor bill automatically in Odoo.
-homepage: https://github.com/nicolasramos/odooclaw
-metadata: {"openclaw":{"emoji":"🧾","requires":{"env":["ODOO_URL","ODOO_DB","ODOO_USERNAME","ODOO_PASSWORD","VISION_API_BASE","VISION_MODEL","OPENAI_API_KEY"]}}}
+
+metadata: {"openclaw": {"emoji": "🧾", "requires": {"env": ["ODOO_URL", "ODOO_DB", "ODOO_USERNAME", "ODOO_PASSWORD", "VISION_API_BASE", "VISION_MODEL", "OPENAI_API_KEY"]}}, "homepage": "https://github.com/nicolasramos/odooclaw"}
 ---
 
 # OCR Invoice Skill
@@ -22,6 +22,51 @@ Complete vendor bill flow from an Odoo attachment:
 - When `attachment_id` is available.
 
 ## Tools
+
+### `read_document`
+
+Read an attached document and get its text back. When the document is an
+invoice the answer also carries the structured fields and the validation
+issues. This is the entry point for "what does this document say?" questions:
+it downloads the `ir.attachment`, writes a scratch file, reads the PDF text
+layer (or OCRs the rendered pages), runs the 4-layer pipeline and deletes the
+scratch file, all in one call.
+
+```json
+{
+  "attachment_id": 1234,
+  "max_pages": 4,
+  "include_text": true,
+  "sender_id": 7,
+  "company_id": 3,
+  "allowed_company_ids": [3, 5]
+}
+```
+
+- `max_pages`: PDF pages to read (default `OCR_MAX_PAGES`, capped at 20).
+- `include_text=false`: return the structured fields without the whole text.
+- Works on PDFs, images and plain text. Audio goes to `whisper-stt`, not here.
+- `review_required` is true when the numbers did not validate: the text is
+  still returned, the amounts are not to be trusted.
+
+```json
+{
+  "success": true,
+  "attachment_id": 1234,
+  "filename": "factura.pdf",
+  "text_source": "pdf_text_layer",
+  "text_chars": 812,
+  "partner_name": "Proveedor SL",
+  "invoice_number": "FRA-2026-001",
+  "amount_total": 121.0,
+  "amount_tax": 21.0,
+  "lines": [{"name": "Base al 21%", "price_subtotal": 100.0, "tax_percentage": 21.0}],
+  "is_invoice": true,
+  "validation_ok": true,
+  "review_required": false,
+  "text": "..."
+}
+```
 
 ### `ocr-invoice`
 
@@ -52,6 +97,13 @@ Extract and create vendor bill in Odoo.
 
 - `dry_run=true`: extract and normalize only; do not create `account.move`.
 - `sender_id` + company context: executes ORM as the Odoo user and respects multi-company (`company_id`, `allowed_company_ids`).
+- Reads the same way `read_document` does: the PDF text layer first, the
+  deterministic fiscal parser for the numbers, printed item rows for the lines
+  when they add up to the untaxed base. Vision is only reached for a page with
+  no text layer, so a deployment without a vision model still books a digital
+  invoice correctly.
+- Refuses to create a bill when no total and no priced line were read: it
+  answers with an error naming the attachment instead of writing a 0.00 draft.
 
 ### `ocr-create-employee-expense`
 
@@ -111,6 +163,13 @@ Optional:
 - `OCR_TIMEOUT_SECONDS` (default: `240`)
 - `OCR_MAX_PAGES` (default: `4`)
 - `OCR_IMAGE_DPI` (default: `170`)
+- `OCR_READ_TIMEOUT_SECONDS` (default: `120`): budget for one `read_document` call
+- `OCR_READ_WORKDIR`: parent directory for the scratch file (default: system temp)
+- `OCR_PIPELINE_VISION_URL` / `OCR_PIPELINE_VISION_MODEL` / `OCR_PIPELINE_VISION_KEY`:
+  vision endpoint used to OCR scanned pages, falling back to `VISION_API_BASE` /
+  `VISION_MODEL` / `OPENAI_API_KEY`
+- `OCR_PIPELINE_LLM_URL` / `OCR_PIPELINE_LLM_MODEL` / `OCR_PIPELINE_LLM_KEY`:
+  header model for the 4-layer pipeline
 
 ## Example configuration
 
