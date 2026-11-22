@@ -18,8 +18,6 @@ fields, views, server actions and menus, with logical snapshot and rollback.
         'views/change_views.xml',
         'views/forge_views.xml',
         'views/overlay_views.xml',
-        'views/chat_wizard_views.xml',
-        'views/sale_order_views.xml',
         'views/menus.xml',
     ],
     'installable': True,
