@@ -213,7 +213,52 @@ class OdooClawChange(models.Model):
             'help': payload.get('help') or False,
             'state': 'manual',
         })
-        return {'kind': 'field', 'field_id': field.id, 'existed': False}
+        view = self._place_field_in_form(payload['model'], field)
+        return {
+            'kind': 'field',
+            'field_id': field.id,
+            'view_id': view.id if view else False,
+            'existed': False,
+        }
+
+    def _place_field_in_form(self, model_name, field):
+        """Insert the new field into the model's default form view.
+
+        A manual field that is not placed anywhere is invisible in the UI, so
+        the field change also creates an inherited view. The anchor is the
+        first of partner_id/name/user_id present on the model; the insertion
+        goes right after it.
+        """
+        view = self.env['ir.ui.view'].sudo().search([
+            ('model', '=', model_name),
+            ('type', '=', 'form'),
+            ('inherit_id', '=', False),
+        ], order='priority, id', limit=1)
+        if not view:
+            return None
+        model_fields = self.env[model_name]._fields
+        anchor = None
+        for candidate in ('partner_id', 'name', 'user_id'):
+            if candidate in model_fields:
+                anchor = candidate
+                break
+        if not anchor:
+            return None
+        arch = (
+            '<data><field name="%s" position="after">'
+            '<field name="%s"/></field></data>'
+        ) % (anchor, field.name)
+        new_view = self.env['ir.ui.view'].sudo().create({
+            'name': 'odooclaw.%s.%s' % (model_name, field.name),
+            'model': model_name,
+            'inherit_id': view.id,
+            'arch': arch,
+            'priority': 99,
+        })
+        self.env['ir.ui.view'].flush_model()
+        self.env['ir.ui.view'].clear_caches()
+        self.env.registry.clear_cache()
+        return new_view
 
     def _apply_view(self, payload):
         inherit = False
@@ -274,6 +319,12 @@ class OdooClawChange(models.Model):
         self.ensure_one()
         kind = snapshot.get('kind')
         if kind == 'field':
+            if snapshot.get('view_id'):
+                view = self.env['ir.ui.view'].sudo().browse(snapshot['view_id']).exists()
+                if view:
+                    view.unlink()
+                self.env['ir.ui.view'].clear_caches()
+                self.env.registry.clear_cache()
             field = self.env['ir.model.fields'].sudo().browse(snapshot['field_id']).exists()
             if field:
                 field.unlink()
