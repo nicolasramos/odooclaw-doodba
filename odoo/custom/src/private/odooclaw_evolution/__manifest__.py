@@ -10,7 +10,7 @@ OdooClaw Evolution
 Ledger of changes and hot application of N0/N1 changes:
 fields, views, server actions and menus, with logical snapshot and rollback.
 """,
-    'depends': ['base', 'web', 'mail'],
+    'depends': ['base', 'web', 'mail', 'sale_management'],
     'data': [
         'security/evolution_security.xml',
         'security/ir.model.access.csv',
@@ -18,15 +18,10 @@ fields, views, server actions and menus, with logical snapshot and rollback.
         'views/change_views.xml',
         'views/forge_views.xml',
         'views/overlay_views.xml',
+        'views/chat_wizard_views.xml',
+        'views/sale_order_views.xml',
         'views/menus.xml',
     ],
-    'assets': {
-        'web.assets_backend': [
-            'odooclaw_evolution/static/src/js/odooclaw_systray.js',
-            'odooclaw_evolution/static/src/xml/odooclaw_systray.xml',
-            'odooclaw_evolution/static/src/scss/odooclaw_systray.scss',
-        ],
-    },
     'installable': True,
     'application': False,
     'auto_install': False,

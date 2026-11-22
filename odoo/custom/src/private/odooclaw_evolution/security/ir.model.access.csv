@@ -4,3 +4,4 @@ access_odooclaw_forge_user,odooclaw.forge user,model_odooclaw_forge,group_odoocl
 access_odooclaw_overlay_user,odooclaw.overlay user,model_odooclaw_overlay,group_odooclaw_evolution_user,1,1,1,1
 access_odooclaw_plan_user,odooclaw.plan user,model_odooclaw_plan,group_odooclaw_evolution_user,1,1,1,1
 access_odooclaw_overlay_run_user,odooclaw.overlay.run user,model_odooclaw_overlay_run,group_odooclaw_evolution_user,1,1,1,1
+access_odooclaw_chat_wizard_user,odooclaw.chat.wizard user,model_odooclaw_chat_wizard,base.group_user,1,1,1,1

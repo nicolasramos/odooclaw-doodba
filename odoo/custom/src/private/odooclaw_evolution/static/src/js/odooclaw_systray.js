@@ -1,11 +1,29 @@
 /** @odoo-module **/
-import { Component, useState } from "@odoo/owl";
+import { Component, useState, xml } from "@odoo/owl";
 import { Dialog } from "@web/core/dialog/dialog";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 
 export class OdooClawDialog extends Component {
-    static template = "odooclaw_evolution.OdooClawDialog";
+    static template = xml`
+        <Dialog title="'OdooClaw Live'" size="'md'">
+            <div class="o_odooclaw_dialog">
+                <p class="text-muted" t-if="contextLabel">
+                    <t t-esc="contextLabel"/>
+                </p>
+                <textarea class="form-control" rows="4" placeholder="¿Qué quieres cambiar?"
+                          t-model="state.request"/>
+                <p class="text-danger mt-2" t-if="state.error" t-esc="state.error"/>
+            </div>
+            <t t-set-slot="footer">
+                <button class="btn btn-secondary" t-on-click="props.close">Cancelar</button>
+                <button class="btn btn-primary" t-on-click="openChat" t-att-disabled="state.sending">
+                    <t t-if="state.sending">Abriendo...</t>
+                    <t t-else="">Abrir chat</t>
+                </button>
+            </t>
+        </Dialog>
+    `;
     static components = { Dialog };
     static props = {
         close: Function,
@@ -63,7 +81,11 @@ export class OdooClawDialog extends Component {
 }
 
 export class OdooClawSystray extends Component {
-    static template = "odooclaw_evolution.OdooClawSystray";
+    static template = xml`
+        <button class="o_odooclaw_systray btn btn-link" t-on-click="onClick" title="OdooClaw Live">
+            <i class="fa fa-magic"/> OdooClaw
+        </button>
+    `;
 
     setup() {
         this.action = useService("action");

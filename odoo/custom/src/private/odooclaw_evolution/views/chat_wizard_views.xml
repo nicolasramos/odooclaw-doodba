@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_odooclaw_chat_wizard_form" model="ir.ui.view">
+        <field name="name">odooclaw.chat.wizard.form</field>
+        <field name="model">odooclaw.chat.wizard</field>
+        <field name="arch" type="xml">
+            <form string="OdooClaw Live">
+                <group>
+                    <field name="model" readonly="1"/>
+                    <field name="res_id" readonly="1"/>
+                    <field name="field" readonly="1"/>
+                </group>
+                <field name="request" placeholder="¿Qué quieres cambiar?"/>
+                <footer>
+                    <button name="action_open_chat" type="object" string="Abrir chat" class="btn-primary"/>
+                    <button special="cancel" string="Cancelar" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>
