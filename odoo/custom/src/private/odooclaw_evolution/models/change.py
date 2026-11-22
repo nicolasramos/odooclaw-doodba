@@ -107,13 +107,27 @@ class OdooClawChange(models.Model):
             raise ValidationError(_('Unsupported change kind: %s', self.kind))
 
     def _validate_field(self, payload):
+        items = payload.get('field')
+        if isinstance(items, dict):
+            self._validate_single_field(items)
+            return
+        if isinstance(items, list):
+            if not items:
+                raise ValidationError(_('Field payload requires at least one field.'))
+            for item in items:
+                self._validate_single_field(item)
+            return
+        self._validate_single_field(payload)
+
+    def _validate_single_field(self, payload):
         model = payload.get('model')
         name = payload.get('name')
         ttype = payload.get('ttype')
         if not model or not name or not ttype:
             raise ValidationError(_('Field payload requires model, name and ttype.'))
         if not name.startswith('x_'):
-            raise ValidationError(_('Manual fields must start with x_.'))
+            name = 'x_' + name
+            payload['name'] = name
         if ttype not in ALLOWED_FIELD_TYPES:
             raise ValidationError(_('Field type %s is not allowed in N1.', ttype))
         if model not in self.env:
@@ -177,6 +191,18 @@ class OdooClawChange(models.Model):
         raise UserError(_('Unsupported change kind: %s', self.kind))
 
     def _apply_field(self, payload):
+        items = payload.get('field')
+        if isinstance(items, dict):
+            return self._apply_single_field(items)
+        if isinstance(items, list):
+            return {
+                'kind': 'fields',
+                'fields': [self._apply_single_field(item) for item in items],
+                'existed': False,
+            }
+        return self._apply_single_field(payload)
+
+    def _apply_single_field(self, payload):
         model = self.env['ir.model'].sudo()._get(payload['model'])
         field = self.env['ir.model.fields'].sudo().create({
             'model_id': model.id,
@@ -251,6 +277,12 @@ class OdooClawChange(models.Model):
             field = self.env['ir.model.fields'].sudo().browse(snapshot['field_id']).exists()
             if field:
                 field.unlink()
+            return
+        if kind == 'fields':
+            for item in snapshot.get('fields', []):
+                field = self.env['ir.model.fields'].sudo().browse(item.get('field_id')).exists()
+                if field:
+                    field.unlink()
             return
         if kind == 'view':
             view = self.env['ir.ui.view'].sudo().browse(snapshot['view_id']).exists()
