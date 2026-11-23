@@ -26,6 +26,7 @@ class TestOdooClawChange(TransactionCase):
             'name': 'x_evo_test_field',
             'ttype': 'char',
             'field_description': 'Evo Test Field',
+            'help': 'Campo de prueba del ciclo de evolucion.',
         })
         self.assertEqual(change.status, 'draft')
         change.action_validate()
@@ -118,7 +119,32 @@ class TestOdooClawChange(TransactionCase):
             'model': 'res.partner',
             'name': 'x_evo_not_applied',
             'ttype': 'char',
+            'help': 'Campo de prueba del rollback.',
         })
         change.action_validate()
         with self.assertRaises(UserError):
             change.action_rollback()
+
+    def test_field_without_help_is_refused(self):
+        change = self._change('field', {
+            'model': 'res.partner',
+            'name': 'x_evo_needs_help',
+            'ttype': 'char',
+            'field_description': 'No help',
+        })
+        with self.assertRaises(ValidationError):
+            change.action_validate()
+        self.assertEqual(change.status, 'draft')
+
+    def test_field_help_can_be_disabled_by_setting(self):
+        self.env['ir.config_parameter'].sudo().set_param(
+            'odooclaw.require_field_help', 'False'
+        )
+        change = self._change('field', {
+            'model': 'res.partner',
+            'name': 'x_evo_no_help_allowed',
+            'ttype': 'char',
+            'field_description': 'No help, setting off',
+        })
+        change.action_validate()
+        self.assertEqual(change.status, 'validated')

@@ -173,12 +173,28 @@ class OdooClawChange(models.Model):
             return
         self._validate_single_field(payload)
 
+    def _require_field_help(self):
+        """Whether a created field must explain itself (on by default)."""
+        value = self.env['ir.config_parameter'].sudo().get_param(
+            'odooclaw.require_field_help', 'True'
+        )
+        return str(value).lower() not in ('false', '0', '')
+
     def _validate_single_field(self, payload):
         model = payload.get('model')
         name = payload.get('name')
         ttype = payload.get('ttype')
         if not model or not name or not ttype:
             raise ValidationError(_('Field payload requires model, name and ttype.'))
+        help_text = (payload.get('help') or '').strip()
+        if self._require_field_help() and not help_text:
+            raise ValidationError(_(
+                'Field %(model)s.%(name)s needs a help text: whoever uses it '
+                'has to know what it is for. Add it, or turn off '
+                '"Require help on created fields" in the OdooClaw settings.',
+                model=model, name=name,
+            ))
+        payload['help'] = help_text
         if not name.startswith('x_'):
             name = 'x_' + name
             payload['name'] = name
