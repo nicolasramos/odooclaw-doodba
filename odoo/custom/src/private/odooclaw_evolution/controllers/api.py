@@ -136,6 +136,7 @@ class OdooClawEvolutionApi(http.Controller):
                 'kind': kwargs.get('kind') or 'field',
                 'level': kwargs.get('level') or 'n1',
                 'target_model': kwargs.get('target_model') or '',
+                'target_module': kwargs.get('target_module') or '',
                 'payload': json.dumps(kwargs.get('payload') or {}),
             })
             return {'id': change.id, 'reference': change.reference, 'status': change.status}

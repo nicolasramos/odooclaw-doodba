@@ -70,6 +70,9 @@ class OdooClawChange(models.Model):
     kind = fields.Selection(KINDS, required=True)
     status = fields.Selection(STATUSES, required=True, default='draft')
     target_model = fields.Char()
+    target_module = fields.Char(
+        help='Module being modified by an N3 change; must be installed.',
+    )
     payload = fields.Text()
     snapshot = fields.Text()
     artifact_hash = fields.Char(readonly=True)
@@ -113,8 +116,37 @@ class OdooClawChange(models.Model):
             })
         return True
 
+    def _validate_level(self):
+        """The level must match the kind: N1 metadata only, N2 a new module,
+        N3 an installed module whose behaviour is changed."""
+        if self.kind == 'module':
+            if self.level in ('n0', 'n1'):
+                raise ValidationError(
+                    _('N1 is metadata only. A module change must be N2 (new module) or N3 (existing module).')
+                )
+            if self.level == 'n2' and (self.target_module or '').strip():
+                raise ValidationError(
+                    _('N2 creates a new module; leave target_module empty.')
+                )
+            if self.level == 'n3':
+                target = (self.target_module or '').strip()
+                if not target:
+                    raise ValidationError(
+                        _('N3 requires target_module: the installed module whose logic is changed.')
+                    )
+                if not self.env['ir.module.module'].search_count(
+                    [('name', '=', target), ('state', '=', 'installed')]
+                ):
+                    raise ValidationError(_('Target module %s is not installed.', target))
+        else:
+            if self.level in ('n2', 'n3'):
+                raise ValidationError(
+                    _('N2 and N3 are for module changes only. Use N1 for field, view, action or menu changes.')
+                )
+
     def _validate_payload(self, payload):
         self.ensure_one()
+        self._validate_level()
         if self.kind == 'field':
             self._validate_field(payload)
         elif self.kind == 'view':
@@ -238,6 +270,12 @@ class OdooClawChange(models.Model):
                 [('name', '=', dep), ('state', '=', 'installed')]
             ):
                 raise ValidationError(_('Dependency %s is not installed.', dep))
+        if self.level == 'n3':
+            target = (self.target_module or '').strip()
+            if target and target not in depends:
+                raise ValidationError(
+                    _('The N3 module must declare %s in its depends.', target)
+                )
 
     def _validate_module_python(self, rel, content):
         try:
