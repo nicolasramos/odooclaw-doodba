@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import re
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, ValidationError
@@ -31,6 +32,7 @@ STATUSES = [
 
 ALLOWED_FIELD_TYPES = (
     'char', 'text', 'integer', 'float', 'boolean', 'date', 'datetime',
+    'selection',
 )
 
 FORBIDDEN_CODE_TOKENS = (
@@ -129,7 +131,14 @@ class OdooClawChange(models.Model):
             name = 'x_' + name
             payload['name'] = name
         if ttype not in ALLOWED_FIELD_TYPES:
-            raise ValidationError(_('Field type %s is not allowed in N1.', ttype))
+            raise ValidationError(_('Field type %s is not allowed for N1 changes.', ttype))
+        if ttype == 'selection':
+            values = payload.get('selection') or []
+            if not isinstance(values, list) or not values:
+                raise ValidationError(_('Selection fields require a non-empty selection list.'))
+            for item in values:
+                if not isinstance(item, (list, tuple)) or len(item) != 2:
+                    raise ValidationError(_('Each selection value must be a [value, label] pair.'))
         if model not in self.env:
             raise ValidationError(_('Unknown model: %s', model))
         existing = self.env['ir.model.fields'].sudo().search([
@@ -213,7 +222,14 @@ class OdooClawChange(models.Model):
             'help': payload.get('help') or False,
             'state': 'manual',
         })
-        view = self._place_field_in_form(payload['model'], field)
+        if payload.get('ttype') == 'selection':
+            for value, label in payload.get('selection') or []:
+                self.env['ir.model.fields.selection'].sudo().create({
+                    'field_id': field.id,
+                    'value': str(value),
+                    'name': str(label),
+                })
+        view = self._place_field_in_form(payload['model'], field, payload.get('insert_after'))
         return {
             'kind': 'field',
             'field_id': field.id,
@@ -221,13 +237,13 @@ class OdooClawChange(models.Model):
             'existed': False,
         }
 
-    def _place_field_in_form(self, model_name, field):
+    def _place_field_in_form(self, model_name, field, anchor=None):
         """Insert the new field into the model's default form view.
 
         A manual field that is not placed anywhere is invisible in the UI, so
         the field change also creates an inherited view. The anchor is the
-        first of partner_id/name/user_id present on the model; the insertion
-        goes right after it.
+        requested insert_after when it exists on the model, otherwise the first
+        of partner_id/name/user_id present; the insertion goes right after it.
         """
         view = self.env['ir.ui.view'].sudo().search([
             ('model', '=', model_name),
@@ -237,17 +253,18 @@ class OdooClawChange(models.Model):
         if not view:
             return None
         model_fields = self.env[model_name]._fields
-        anchor = None
-        for candidate in ('partner_id', 'name', 'user_id'):
-            if candidate in model_fields:
-                anchor = candidate
-                break
-        if not anchor:
+        chosen = anchor if anchor and anchor in model_fields else None
+        if not chosen:
+            for candidate in ('partner_id', 'name', 'user_id'):
+                if candidate in model_fields:
+                    chosen = candidate
+                    break
+        if not chosen:
             return None
         arch = (
             '<data><field name="%s" position="after">'
             '<field name="%s"/></field></data>'
-        ) % (anchor, field.name)
+        ) % (chosen, field.name)
         new_view = self.env['ir.ui.view'].sudo().create({
             'name': 'odooclaw.%s.%s' % (model_name, field.name),
             'model': model_name,
@@ -276,6 +293,18 @@ class OdooClawChange(models.Model):
         self.env['ir.ui.view'].flush_model()
         self.env['ir.ui.view'].clear_caches()
         self.env.registry.clear_cache()
+        # A field change auto-places its field after a default anchor. When an
+        # explicit view change places the same field, drop that auto view so
+        # the field is not rendered twice.
+        for field_name in re.findall(r'<field\s+name="(x_[^"]+)"', payload['arch']):
+            auto = self.env['ir.ui.view'].sudo().search([
+                ('name', '=', 'odooclaw.%s.%s' % (payload['model'], field_name)),
+            ], limit=1)
+            if auto:
+                auto.unlink()
+                self.env['ir.ui.view'].flush_model()
+                self.env['ir.ui.view'].clear_caches()
+                self.env.registry.clear_cache()
         return {'kind': 'view', 'view_id': view.id, 'existed': False}
 
     def _apply_action(self, payload):
