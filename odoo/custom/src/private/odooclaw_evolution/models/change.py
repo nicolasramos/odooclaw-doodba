@@ -441,29 +441,44 @@ class OdooClawChange(models.Model):
     def _module_paths(self):
         """Find the writable private addons dir and the auto addons dir that
         holds the symlinks. Doodba links <auto>/<module> to
-        ../../custom/src/private/<module>."""
+        ../../custom/src/private/<module>; other deployments put the private
+        dir directly in the addons path."""
         import odoo
 
-        for addons_dir in odoo.addons.__path__:
-            try:
-                entries = os.listdir(addons_dir)
-            except OSError:
-                continue
-            for entry in entries:
-                link = os.path.join(addons_dir, entry)
-                if not os.path.islink(link):
+        paths = list(odoo.addons.__path__)
+        private = next(
+            (p for p in paths if os.path.basename(os.path.normpath(p)) == 'private'),
+            None,
+        )
+        auto_dir = next(
+            (
+                p
+                for p in paths
+                if os.path.basename(os.path.normpath(p)) == 'addons' and os.access(p, os.W_OK)
+            ),
+            None,
+        )
+        if not private:
+            for addons_dir in paths:
+                try:
+                    entries = os.listdir(addons_dir)
+                except OSError:
                     continue
-                target = os.path.realpath(link)
-                parent = os.path.dirname(target)
-                if os.path.basename(parent) == 'private':
-                    return parent, addons_dir
-        return None, None
+                for entry in entries:
+                    link = os.path.join(addons_dir, entry)
+                    if not os.path.islink(link):
+                        continue
+                    target = os.path.realpath(link)
+                    parent = os.path.dirname(target)
+                    if os.path.basename(parent) == 'private':
+                        return parent, addons_dir
+        return private, auto_dir or private
 
     def _apply_module(self, payload):
         module_name = payload['module']
         files = payload['files']
         private, auto_dir = self._module_paths()
-        if not private or not auto_dir:
+        if not private:
             raise UserError(_('No writable private addons path is configured.'))
         path = os.path.join(private, module_name)
         existed = os.path.isdir(path)
@@ -485,6 +500,10 @@ class OdooClawChange(models.Model):
         else:
             module.button_immediate_install()
         self.env.registry.clear_cache()
+        if module.state != 'installed':
+            raise UserError(
+                _('Module %(name)s did not reach the installed state (%(state)s).', name=module_name, state=module.state)
+            )
         return {
             'kind': 'module',
             'module': module_name,
