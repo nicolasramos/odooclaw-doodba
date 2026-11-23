@@ -1,7 +1,10 @@
+import ast
 import hashlib
 import json
 import logging
+import os
 import re
+import shutil
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, ValidationError
@@ -20,6 +23,7 @@ KINDS = [
     ('view', 'View'),
     ('action', 'Server action'),
     ('menu', 'Menu'),
+    ('module', 'Python module'),
 ]
 
 STATUSES = [
@@ -38,6 +42,20 @@ ALLOWED_FIELD_TYPES = (
 FORBIDDEN_CODE_TOKENS = (
     'sudo(', '__import__', 'open(', 'eval(', 'exec(', 'compile(',
 )
+
+ALLOWED_MODULE_IMPORTS = {
+    'odoo', 'datetime', 'decimal', 'logging', 'json', 'math', 're',
+    'collections', 'itertools', 'functools', 'uuid', 'hashlib', 'base64',
+    'zoneinfo', 'dateutil', 'pytz',
+}
+FORBIDDEN_MODULE_NAMES = {
+    'eval', 'exec', 'compile', 'open', '__import__', 'globals', 'locals',
+    'vars', '__builtins__', 'input', 'breakpoint', 'getattr', 'setattr',
+    'delattr',
+}
+MAX_MODULE_BYTES = 200_000
+MODULE_NAME_RE = re.compile(r'^oc_[a-z0-9_]{2,40}$')
+MODULE_FILE_RE = re.compile(r'^[A-Za-z0-9_./-]+$')
 
 
 class OdooClawChange(models.Model):
@@ -105,6 +123,8 @@ class OdooClawChange(models.Model):
             self._validate_action(payload)
         elif self.kind == 'menu':
             self._validate_menu(payload)
+        elif self.kind == 'module':
+            self._validate_module(payload)
         else:
             raise ValidationError(_('Unsupported change kind: %s', self.kind))
 
@@ -173,6 +193,90 @@ class OdooClawChange(models.Model):
             if payload.get(key) and not self.env.ref(payload[key], raise_if_not_found=False):
                 raise ValidationError(_('Unknown xmlid in %(key)s: %(value)s', key=key, value=payload[key]))
 
+    def _validate_module(self, payload):
+        module = (payload.get('module') or '').strip()
+        if not MODULE_NAME_RE.match(module):
+            raise ValidationError(_('Module name must match oc_<slug>.'))
+        files = payload.get('files')
+        if not isinstance(files, dict) or not files:
+            raise ValidationError(_('Module payload requires a files object.'))
+        for name in ('__manifest__.py', '__init__.py'):
+            if name not in files:
+                raise ValidationError(_('Module is missing %s.', name))
+        total = 0
+        for rel, content in files.items():
+            if (
+                not isinstance(rel, str)
+                or not MODULE_FILE_RE.match(rel)
+                or '..' in rel
+                or rel.startswith('/')
+            ):
+                raise ValidationError(_('Invalid module file path: %s', rel))
+            if not isinstance(content, str):
+                raise ValidationError(_('File %s must be text.', rel))
+            total += len(content)
+            if rel.endswith('.py'):
+                self._validate_module_python(rel, content)
+        if total > MAX_MODULE_BYTES:
+            raise ValidationError(_('Module exceeds the %s byte limit.', MAX_MODULE_BYTES))
+        try:
+            manifest = ast.literal_eval(files['__manifest__.py'])
+        except (ValueError, SyntaxError):
+            raise ValidationError(_('Manifest must be a Python literal dict.'))
+        if not isinstance(manifest, dict):
+            raise ValidationError(_('Manifest must be a dict.'))
+        version = str(manifest.get('version') or '')
+        if not version.startswith('18.0.'):
+            raise ValidationError(_('Manifest version must start with 18.0.'))
+        if not manifest.get('installable', True):
+            raise ValidationError(_('Module must be installable.'))
+        depends = manifest.get('depends') or []
+        if not isinstance(depends, list):
+            raise ValidationError(_('Manifest depends must be a list.'))
+        for dep in depends:
+            if not isinstance(dep, str) or not self.env['ir.module.module'].search_count(
+                [('name', '=', dep), ('state', '=', 'installed')]
+            ):
+                raise ValidationError(_('Dependency %s is not installed.', dep))
+
+    def _validate_module_python(self, rel, content):
+        try:
+            tree = ast.parse(content)
+        except SyntaxError as exc:
+            raise ValidationError(
+                _('Syntax error in %(file)s: %(err)s', file=rel, err=exc)
+            )
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.split('.')[0]
+                    if root not in ALLOWED_MODULE_IMPORTS:
+                        raise ValidationError(
+                            _('Import not allowed in %(file)s: %(mod)s', file=rel, mod=alias.name)
+                        )
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    continue
+                root = (node.module or '').split('.')[0]
+                if root not in ALLOWED_MODULE_IMPORTS:
+                    raise ValidationError(
+                        _('Import not allowed in %(file)s: %(mod)s', file=rel, mod=node.module)
+                    )
+            elif isinstance(node, ast.Attribute):
+                if node.attr == 'sudo':
+                    raise ValidationError(_('sudo() is not allowed in generated code.'))
+            elif isinstance(node, ast.Name):
+                if node.id in FORBIDDEN_MODULE_NAMES:
+                    raise ValidationError(
+                        _('Name %(name)s is not allowed in generated code (%(file)s).', name=node.id, file=rel)
+                    )
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name) and func.id in FORBIDDEN_MODULE_NAMES:
+                    raise ValidationError(
+                        _('Call to %(name)s is not allowed in generated code (%(file)s).', name=func.id, file=rel)
+                    )
+
     def action_apply(self):
         for change in self:
             if change.status != 'validated':
@@ -197,6 +301,8 @@ class OdooClawChange(models.Model):
             return self._apply_action(payload)
         if self.kind == 'menu':
             return self._apply_menu(payload)
+        if self.kind == 'module':
+            return self._apply_module(payload)
         raise UserError(_('Unsupported change kind: %s', self.kind))
 
     def _apply_field(self, payload):
@@ -332,6 +438,61 @@ class OdooClawChange(models.Model):
         })
         return {'kind': 'menu', 'menu_id': menu.id, 'existed': False}
 
+    def _module_paths(self):
+        """Find the writable private addons dir and the auto addons dir that
+        holds the symlinks. Doodba links <auto>/<module> to
+        ../../custom/src/private/<module>."""
+        import odoo
+
+        for addons_dir in odoo.addons.__path__:
+            try:
+                entries = os.listdir(addons_dir)
+            except OSError:
+                continue
+            for entry in entries:
+                link = os.path.join(addons_dir, entry)
+                if not os.path.islink(link):
+                    continue
+                target = os.path.realpath(link)
+                parent = os.path.dirname(target)
+                if os.path.basename(parent) == 'private':
+                    return parent, addons_dir
+        return None, None
+
+    def _apply_module(self, payload):
+        module_name = payload['module']
+        files = payload['files']
+        private, auto_dir = self._module_paths()
+        if not private or not auto_dir:
+            raise UserError(_('No writable private addons path is configured.'))
+        path = os.path.join(private, module_name)
+        existed = os.path.isdir(path)
+        os.makedirs(path, exist_ok=True)
+        for rel, content in files.items():
+            full = os.path.join(path, rel)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, 'w', encoding='utf-8') as handle:
+                handle.write(content)
+        link = os.path.join(auto_dir, module_name)
+        if not os.path.lexists(link):
+            os.symlink(os.path.relpath(path, auto_dir), link)
+        self.env['ir.module.module'].update_list()
+        module = self.env['ir.module.module'].search([('name', '=', module_name)], limit=1)
+        if not module:
+            raise UserError(_('Module %s was not found after update_list.', module_name))
+        if module.state == 'installed':
+            module.button_immediate_upgrade()
+        else:
+            module.button_immediate_install()
+        self.env.registry.clear_cache()
+        return {
+            'kind': 'module',
+            'module': module_name,
+            'path': path,
+            'existed': existed,
+            'state': module.state,
+        }
+
     def action_rollback(self):
         for change in self:
             if change.status != 'applied':
@@ -363,6 +524,18 @@ class OdooClawChange(models.Model):
                 field = self.env['ir.model.fields'].sudo().browse(item.get('field_id')).exists()
                 if field:
                     field.unlink()
+            return
+        if kind == 'module':
+            module = self.env['ir.module.module'].sudo().search([
+                ('name', '=', snapshot.get('module') or ''),
+            ], limit=1)
+            if module and module.state == 'installed':
+                module.button_immediate_uninstall()
+            path = snapshot.get('path')
+            if path and os.path.isdir(path):
+                shutil.rmtree(path)
+            self.env['ir.module.module'].update_list()
+            self.env.registry.clear_cache()
             return
         if kind == 'view':
             view = self.env['ir.ui.view'].sudo().browse(snapshot['view_id']).exists()
