@@ -5,6 +5,8 @@ import logging
 import os
 import re
 import shutil
+import subprocess
+import tempfile
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, ValidationError
@@ -79,6 +81,10 @@ class OdooClawChange(models.Model):
     requested_by = fields.Many2one('res.users', default=lambda self: self.env.user, readonly=True)
     approved_by = fields.Many2one('res.users', readonly=True)
     applied_at = fields.Datetime(readonly=True)
+    repo_commit = fields.Char(
+        readonly=True,
+        help='Commit in the bot repository holding the generated module, when a repository is configured.',
+    )
     rolled_back_at = fields.Datetime(readonly=True)
     note = fields.Text()
     active = fields.Boolean(default=True)
@@ -338,12 +344,126 @@ class OdooClawChange(models.Model):
             payload = change._parse_payload()
             change._validate_payload(payload)
             snapshot = change._apply_payload(payload)
-            change.write({
+            vals = {
                 'status': 'applied',
-                'snapshot': json.dumps(snapshot, default=str),
                 'applied_at': fields.Datetime.now(),
-            })
+            }
+            if change.kind == 'module':
+                # The generated module lives on the container filesystem, which
+                # a fresh deploy replaces. When a bot repository is configured,
+                # the module goes there too: same record, durable copy.
+                commit = change._push_module_to_repo(
+                    snapshot.get('module'), snapshot.get('path')
+                )
+                if commit:
+                    snapshot['repo_commit'] = commit
+                    vals['repo_commit'] = commit
+            vals['snapshot'] = json.dumps(snapshot, default=str)
+            change.write(vals)
         return True
+
+    def _repo_settings(self):
+        icp = self.env['ir.config_parameter'].sudo()
+        return {
+            'url': (icp.get_param('odooclaw.repo.url') or '').strip(),
+            'token': (icp.get_param('odooclaw.repo.token') or '').strip(),
+            'branch': (icp.get_param('odooclaw.repo.branch') or '').strip() or 'main',
+            'author': (icp.get_param('odooclaw.repo.author') or '').strip()
+            or 'OdooClaw <bot@example.com>',
+        }
+
+    @staticmethod
+    def _repo_auth_url(url, token):
+        """Put the token in the URL when it is https and looks like GitHub."""
+        if not token or not url.startswith('https://'):
+            return url
+        scheme, rest = url.split('://', 1)
+        return '%s://x-access-token:%s@%s' % (scheme, token, rest)
+
+    def _push_module_to_repo(self, module_name, module_path):
+        """Commit the generated module to the bot's own repository.
+
+        Returns the commit hash, or an empty string when no repository is
+        configured (the default: nothing leaves the instance) or when it is
+        misconfigured. A failed push never breaks the change: the module is
+        installed either way, and the failure is logged with its reason.
+        """
+        self.ensure_one()
+        settings = self._repo_settings()
+        if not settings['url']:
+            return ''
+        if not module_name or not module_path or not os.path.isdir(module_path):
+            _logger.warning('odooclaw: cannot push module without a path: %s', module_name)
+            return ''
+        if not os.path.isabs(module_path):
+            module_path = os.path.abspath(module_path)
+        workdir = tempfile.mkdtemp(prefix='oc_repo_')
+        try:
+            auth_url = self._repo_auth_url(settings['url'], settings['token'])
+            clone = subprocess.run(
+                ['git', 'clone', '--depth', '1', auth_url, workdir],
+                capture_output=True, text=True, timeout=120,
+            )
+            if clone.returncode != 0:
+                _logger.warning('odooclaw: repo clone failed: %s', clone.stderr.strip())
+                return ''
+            branch = settings['branch']
+            subprocess.run(
+                ['git', '-C', workdir, 'checkout', '-B', branch],
+                capture_output=True, text=True, timeout=60,
+            )
+            target = os.path.join(workdir, module_name)
+            if os.path.isdir(target):
+                shutil.rmtree(target)
+            shutil.copytree(module_path, target)
+            name, email = self._parse_author(settings['author'])
+            env = dict(os.environ, GIT_TERMINAL_PROMPT='0')
+            subprocess.run(
+                ['git', '-C', workdir, 'add', module_name],
+                capture_output=True, text=True, timeout=60, env=env,
+            )
+            commit = subprocess.run(
+                [
+                    'git', '-C', workdir,
+                    '-c', 'user.name=%s' % name,
+                    '-c', 'user.email=%s' % email,
+                    'commit', '-m', '%s %s' % (self.reference or 'EVO', module_name),
+                ],
+                capture_output=True, text=True, timeout=60, env=env,
+            )
+            if commit.returncode != 0:
+                _logger.warning(
+                    'odooclaw: repo commit failed: %s', commit.stderr.strip() or commit.stdout.strip()
+                )
+                return ''
+            push = subprocess.run(
+                ['git', '-C', workdir, 'push', 'origin', branch],
+                capture_output=True, text=True, timeout=180, env=env,
+            )
+            if push.returncode != 0:
+                _logger.warning('odooclaw: repo push failed: %s', push.stderr.strip())
+                return ''
+            head = subprocess.run(
+                ['git', '-C', workdir, 'rev-parse', 'HEAD'],
+                capture_output=True, text=True, timeout=30, env=env,
+            )
+            sha = head.stdout.strip()
+            self.snapshot = json.dumps(
+                dict(json.loads(self.snapshot or '{}'), repo_commit=sha), default=str
+            )
+            return sha
+        except Exception:  # noqa: BLE001 - a push must never break an apply
+            _logger.warning('odooclaw: repo push crashed for %s', module_name, exc_info=True)
+            return ''
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+
+    @staticmethod
+    def _parse_author(author):
+        match = re.match(r'\s*(.*?)\s*<([^>]+)>\s*$', author or '')
+        if match:
+            return match.group(1) or 'OdooClaw', match.group(2)
+        return author or 'OdooClaw', 'odooclaw@example.com'
 
     def _apply_payload(self, payload):
         self.ensure_one()

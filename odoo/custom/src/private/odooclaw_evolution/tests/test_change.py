@@ -148,3 +148,38 @@ class TestOdooClawChange(TransactionCase):
         })
         change.action_validate()
         self.assertEqual(change.status, 'validated')
+
+    def test_module_push_to_configured_repository(self):
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+
+        base = tempfile.mkdtemp(prefix="oc_repo_test_")
+        bare = os.path.join(base, "bare.git")
+        subprocess.run(["git", "init", "--bare", bare], check=True, capture_output=True)
+        module_path = os.path.join(base, "oc_push_demo")
+        os.makedirs(module_path)
+        with open(os.path.join(module_path, "__manifest__.py"), "w") as fh:
+            fh.write("{'name': 'Push demo', 'version': '18.0.1.0.0'}")
+        icp = self.env["ir.config_parameter"].sudo()
+        icp.set_param("odooclaw.repo.url", "file://" + bare)
+        icp.set_param("odooclaw.repo.token", "not-needed-local")
+        icp.set_param("odooclaw.repo.branch", "main")
+        icp.set_param("odooclaw.repo.author", "OdooClaw <bot@example.com>")
+        change = self.Change.create({
+            "name": "Push demo",
+            "kind": "module",
+            "level": "n2",
+            "payload": json.dumps({"module": "oc_push_demo"}),
+        })
+        sha = change._push_module_to_repo("oc_push_demo", module_path)
+        try:
+            self.assertTrue(sha, "the push must return the commit hash")
+            log = subprocess.run(
+                ["git", "--git-dir", bare, "log", "--oneline", "main"],
+                capture_output=True, text=True,
+            )
+            self.assertIn("oc_push_demo", log.stdout)
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
