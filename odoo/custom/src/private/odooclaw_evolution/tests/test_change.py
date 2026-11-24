@@ -183,3 +183,37 @@ class TestOdooClawChange(TransactionCase):
             self.assertIn("oc_push_demo", log.stdout)
         finally:
             shutil.rmtree(base, ignore_errors=True)
+
+    def _module_change(self, files):
+        return self.Change.create({
+            "name": "Module gate",
+            "kind": "module",
+            "level": "n2",
+            "payload": json.dumps({"module": "oc_help_gate", "files": files}),
+        })
+
+    def _module_files(self, field_line):
+        return {
+            "__manifest__.py": "{'name': 'Gate', 'version': '18.0.1.0.0', 'depends': ['base'], 'installable': True}",
+            "__init__.py": "from . import models\n",
+            "models/__init__.py": "from . import demo\n",
+            "models/demo.py": (
+                "from odoo import fields, models\n\n\n"
+                "class Demo(models.Model):\n"
+                "    _name = 'x_gate_demo'\n"
+                "    " + field_line + "\n"
+            ),
+        }
+
+    def test_generated_field_without_help_is_refused(self):
+        change = self._module_change(self._module_files("name = fields.Char()"))
+        with self.assertRaises(ValidationError):
+            change.action_validate()
+        self.assertEqual(change.status, "draft")
+
+    def test_generated_field_with_help_passes_validation(self):
+        change = self._module_change(
+            self._module_files('name = fields.Char(help="Nombre del registro.")')
+        )
+        change.action_validate()
+        self.assertEqual(change.status, "validated")

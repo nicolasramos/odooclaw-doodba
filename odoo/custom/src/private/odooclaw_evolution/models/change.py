@@ -59,6 +59,14 @@ MAX_MODULE_BYTES = 200_000
 MODULE_NAME_RE = re.compile(r'^oc_[a-z0-9_]{2,40}$')
 MODULE_FILE_RE = re.compile(r'^[A-Za-z0-9_./-]+$')
 
+# Field constructors the generated code can use. Every one must carry a help
+# text: the rule is the same as for N1 fields, enforced here by reading the AST.
+FIELD_CONSTRUCTORS = {
+    'Char', 'Text', 'Html', 'Integer', 'Float', 'Monetary', 'Boolean', 'Date',
+    'Datetime', 'Selection', 'Many2one', 'One2many', 'Many2many', 'Binary',
+    'Json', 'Reference', 'Image',
+}
+
 
 class OdooClawChange(models.Model):
     _name = 'odooclaw.change'
@@ -336,6 +344,18 @@ class OdooClawChange(models.Model):
                     raise ValidationError(
                         _('Call to %(name)s is not allowed in generated code (%(file)s).', name=func.id, file=rel)
                     )
+                if (
+                    isinstance(func, ast.Attribute)
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == 'fields'
+                    and func.attr in FIELD_CONSTRUCTORS
+                    and not any(kw.arg == 'help' for kw in node.keywords)
+                ):
+                    raise ValidationError(_(
+                        'Field %(field)s in %(file)s needs a help text: whoever '
+                        'uses it has to know what it is for.',
+                        field=func.attr, file=rel,
+                    ))
 
     def action_apply(self):
         for change in self:
