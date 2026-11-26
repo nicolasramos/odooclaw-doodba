@@ -43,7 +43,10 @@ class OdooClawEvolutionApi(http.Controller):
             return {'error': 'model_required'}
         env = self._api_user()
         if model not in env:
-            return {'error': 'model_not_found'}
+            return {
+                'error': 'model_not_found',
+                'message': 'Unknown model %r. Use the technical model name, e.g. crm.lead.' % model,
+            }
         record = env[model]
         record.check_access_rights('read')
         record.check_access_rule('read')
@@ -74,10 +77,16 @@ class OdooClawEvolutionApi(http.Controller):
                     })
             except Exception:
                 _logger.exception('OdooClaw context arch parse failed')
+        resolved_view_id = view.get('id') or (int(view_id) if view_id else False)
+        view_xmlid = ''
+        if resolved_view_id:
+            view_record = env['ir.ui.view'].browse(resolved_view_id)
+            view_xmlid = view_record.get_external_id().get(resolved_view_id) or ''
         return {
             'model': model,
             'view_type': view_type,
-            'view_id': view.get('id') or (int(view_id) if view_id else False),
+            'view_id': resolved_view_id,
+            'view_xmlid': view_xmlid,
             'arch': arch,
             'fields': fields,
             'insert_points': points,
@@ -130,6 +139,13 @@ class OdooClawEvolutionApi(http.Controller):
             return {'error': 'unauthorized'}
         Change = request.env['odooclaw.change'].sudo()
         if action == 'propose':
+            payload = kwargs.get('payload') or {}
+            # Models like to wrap the payload under its kind
+            # ({"view": {...}}). Accept it, store the canonical flat shape.
+            if isinstance(payload, dict) and len(payload) == 1:
+                key = next(iter(payload))
+                if key in ('field', 'view', 'action', 'menu', 'module') and isinstance(payload[key], dict):
+                    payload = payload[key]
             change = Change.create({
                 'name': kwargs.get('name') or 'API change',
                 'request_text': kwargs.get('request_text') or '',
@@ -137,8 +153,18 @@ class OdooClawEvolutionApi(http.Controller):
                 'level': kwargs.get('level') or 'n1',
                 'target_model': kwargs.get('target_model') or '',
                 'target_module': kwargs.get('target_module') or '',
-                'payload': json.dumps(kwargs.get('payload') or {}),
+                'payload': json.dumps(payload),
             })
+            try:
+                change.action_validate()
+            except Exception as error:  # noqa: BLE001
+                return {
+                    'id': change.id,
+                    'reference': change.reference,
+                    'status': change.status,
+                    'validation_error': 'invalid_payload',
+                    'message': str(error),
+                }
             return {'id': change.id, 'reference': change.reference, 'status': change.status}
         change = Change.browse(int(kwargs.get('change_id') or 0)).exists()
         if not change:

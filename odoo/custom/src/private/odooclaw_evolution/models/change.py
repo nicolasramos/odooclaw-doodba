@@ -1,6 +1,8 @@
 import ast
 import hashlib
 import json
+
+from lxml import etree
 import logging
 import os
 import re
@@ -235,6 +237,10 @@ class OdooClawChange(models.Model):
             raise ValidationError(_('View payload requires model and arch.'))
         if '<data' not in payload['arch']:
             raise ValidationError(_('Inherited view arch must be a <data> element.'))
+        try:
+            etree.fromstring(payload['arch'])
+        except Exception as error:  # noqa: BLE001
+            raise ValidationError(_('The view arch is not valid XML: %s', error))
         if payload.get('inherit_xmlid') and not self.env.ref(payload['inherit_xmlid'], raise_if_not_found=False):
             raise ValidationError(_('Unknown view xmlid: %s', payload['inherit_xmlid']))
 
