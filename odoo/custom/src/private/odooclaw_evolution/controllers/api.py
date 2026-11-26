@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 
@@ -146,6 +147,35 @@ class OdooClawEvolutionApi(http.Controller):
                 key = next(iter(payload))
                 if key in ('field', 'view', 'action', 'menu', 'module') and isinstance(payload[key], dict):
                     payload = payload[key]
+            stored_payload = json.dumps(payload)
+            signature = hashlib.sha256(stored_payload.encode()).hexdigest()
+            existing = Change.search([
+                ('artifact_hash', '=', signature),
+                ('kind', '=', kwargs.get('kind') or 'field'),
+                ('target_model', '=', kwargs.get('target_model') or ''),
+                ('status', 'in', ('draft', 'validated')),
+            ], limit=1, order='id desc')
+            if existing:
+                # The model often proposes the same change twice while it
+                # iterates: reuse the open change instead of piling up rows.
+                if existing.status == 'draft':
+                    try:
+                        existing.action_validate()
+                    except Exception as error:  # noqa: BLE001
+                        return {
+                            'id': existing.id,
+                            'reference': existing.reference,
+                            'status': existing.status,
+                            'validation_error': 'invalid_payload',
+                            'message': str(error),
+                            'reused': True,
+                        }
+                return {
+                    'id': existing.id,
+                    'reference': existing.reference,
+                    'status': existing.status,
+                    'reused': True,
+                }
             change = Change.create({
                 'name': kwargs.get('name') or 'API change',
                 'request_text': kwargs.get('request_text') or '',
@@ -153,7 +183,7 @@ class OdooClawEvolutionApi(http.Controller):
                 'level': kwargs.get('level') or 'n1',
                 'target_model': kwargs.get('target_model') or '',
                 'target_module': kwargs.get('target_module') or '',
-                'payload': json.dumps(payload),
+                'payload': stored_payload,
             })
             try:
                 change.action_validate()
