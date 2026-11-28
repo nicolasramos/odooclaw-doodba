@@ -1,6 +1,6 @@
 {
     'name': 'OdooClaw Evolution',
-    'version': '18.0.1.1.0',
+    'version': '18.0.1.2.0',
     'category': 'Technical',
     'summary': 'Ledger and hot metadata changes for Odoo',
     'description': """
