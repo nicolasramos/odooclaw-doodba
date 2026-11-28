@@ -1,27 +1,24 @@
 # OdooClaw AI Bot (`mail_bot_odooclaw`)
 
-> **Fork Notice**: This Odoo module is part of the
-> [OdooClaw](https://github.com/nicolasramos/odooclaw) project, which is a fork of
-> [PicoClaw](https://github.com/sipeed/picoclaw) by [Sipeed], integrated with Odoo ERP.
+> **Fork Notice**: This Odoo module is part of the [OdooClaw](https://github.com/nicolasramos/odooclaw) project, which is a fork of [PicoClaw](https://github.com/sipeed/picoclaw) by [Sipeed], integrated with Odoo ERP.
+
+> **⚠️ SECURITY WARNING**: The `/odooclaw/reply` and `/odooclaw/call_kw_as_user` endpoints are **NOT safe for public exposure**. They must be protected by network isolation AND configured with `odooclaw.reply_token`. See the [Security](#security) section below.
 
 ## Version Compatibility
 
-| Version | Odoo    | Channel Model     | Member Field          |
-| ------- | ------- | ----------------- | --------------------- |
-| 18.0    | Odoo 18 | `discuss.channel` | `channel_member_ids`  |
-| 17.0    | Odoo 17 | `mail.channel`    | `channel_partner_ids` |
-| 16.0    | Odoo 16 | `mail.channel`    | `channel_partner_ids` |
+| Version | Odoo | Channel Model | Member Field |
+|---------|------|---------------|--------------|
+| 18.0 | Odoo 18 | `discuss.channel` | `channel_member_ids` |
+| 17.0 | Odoo 17 | `mail.channel` | `channel_partner_ids` |
+| 16.0 | Odoo 16 | `mail.channel` | `channel_partner_ids` |
 
-> **Important**: Odoo 18 renamed `mail.channel` to `discuss.channel` and changed the
-> member relationship from `channel_partner_ids` (many2many) to `channel_member_ids`
-> (one2many). The module handles these differences automatically per version.
+> **Important**: Odoo 18 renamed `mail.channel` to `discuss.channel` and changed the member relationship from `channel_partner_ids` (many2many) to `channel_member_ids` (one2many). The module handles these differences automatically per version.
 
 ## Odoo Module
 
 This module is located at: `@odoo/custom/src/{version}/mail_bot_odooclaw`
 
-This module integrates an external AI agent (OdooClaw) directly into Odoo's messaging
-system (Discuss).
+This module integrates an external AI agent (OdooClaw) directly into Odoo's messaging system (Discuss).
 
 ## Features
 
@@ -31,14 +28,10 @@ system (Discuss).
 
 ## How it works
 
-The module acts as a two-way bridge between Odoo conversations and an external AI
-service.
+The module acts as a two-way bridge between Odoo conversations and an external AI service.
 
 ### 1. Outgoing Messages (Odoo -> OdooClaw)
-
-When the **OdooClaw** bot user (login: `odooclaw_bot`) is mentioned in a message or
-receives a direct message (DM), the module intercepts the message and sends a
-**webhook** asynchronously.
+When the **OdooClaw** bot user (login: `odooclaw_bot`) is mentioned in a message or receives a direct message (DM), the module intercepts the message and sends a **webhook** asynchronously.
 
 - **Trigger**: Mention in channels or direct DM.
 - **Format**: JSON sent via a POST request.
@@ -52,13 +45,14 @@ receives a direct message (DM), the module intercepts the message and sends a
     "author_name": "John Doe",
     "body": "Hello!",
     "is_dm": true,
-    "voice_attachments": [{"id": 123, "name": "voice.mp3", "mimetype": "audio/mp4"}],
+    "voice_attachments": [
+      {"id": 123, "name": "voice.mp3", "mimetype": "audio/mp4"}
+    ],
     "attachments": []
   }
   ```
 
 ### 2. Incoming Messages (OdooClaw -> Odoo)
-
 The module exposes an endpoint so the bot can reply directly to Odoo threads.
 
 - **Endpoint**: `/odooclaw/reply`
@@ -87,17 +81,13 @@ The module exposes an endpoint so the bot can reply directly to Odoo threads.
 The module supports bidirectional voice communication:
 
 ### Receiving Voice Messages (Speech-to-Text)
-
 When a user sends a voice note:
-
 1. The webhook detects `voice_attachments` in the payload
 2. OdooClaw transcribes the audio using Whisper
 3. The AI processes the transcribed text
 
 ### Sending Voice Responses (Text-to-Speech)
-
 When the user requests voice output:
-
 1. OdooClaw generates audio using Edge TTS
 2. Audio is uploaded as an Odoo attachment
 3. Voice metadata is created for proper playback in Discuss
@@ -107,16 +97,12 @@ When the user requests voice output:
 The module uses a system parameter to determine where to send the requests.
 
 ### Parameter Priority
-
-The code is designed to give **absolute priority** to the configuration stored in the
-**System Parameters**:
+The code is designed to give **absolute priority** to the configuration stored in the **System Parameters**:
 
 1. **System Parameter**: Looks for the key `odooclaw.webhook_url`.
-2. **Default Value**: If the parameter does not exist, it defaults to
-   `http://odooclaw:18790/webhook/odoo`.
+2. **Default Value**: If the parameter does not exist, it defaults to `http://odooclaw:18790/webhook/odoo`.
 
 To change the destination URL:
-
 1. Activate **Developer Mode**.
 2. Go to **Settings > Technical > System Parameters**.
 3. Locate or create the `odooclaw.webhook_url` key and assign the desired value.
@@ -125,8 +111,7 @@ To change the destination URL:
 
 ## Docker / Doodba Integration
 
-To deploy OdooClaw alongside Odoo in a Doodba or Docker Compose environment, it is
-recommended to define the service and its environment variables.
+To deploy OdooClaw alongside Odoo in a Doodba or Docker Compose environment, it is recommended to define the service and its environment variables.
 
 ### Recommended `docker-compose.yml` (or `prod.yaml`) Structure
 
@@ -142,19 +127,19 @@ services:
       - ODOO_DB=${POSTGRES_DB:-devel}
       - ODOO_USERNAME=${ODOO_USERNAME:-admin}
       - ODOO_PASSWORD=${ODOO_PASSWORD:-admin}
-
+      
       # LLM Configuration
       - ODOOCLAW_AGENTS_DEFAULTS_PROVIDER=openai
       - ODOOCLAW_AGENTS_DEFAULTS_MODEL=gpt-4o
       - ODOOCLAW_PROVIDERS_OPENAI_API_KEY=${OPENAI_API_KEY}
       - ODOOCLAW_PROVIDERS_OPENAI_API_BASE=${OPENAI_API_BASE:-https://api.openai.com/v1}
-
+      
       # Odoo Channel Configuration
       - ODOOCLAW_CHANNELS_ODOO_ENABLED=true
       - ODOOCLAW_CHANNELS_ODOO_WEBHOOK_HOST=0.0.0.0
       - ODOOCLAW_CHANNELS_ODOO_WEBHOOK_PORT=18790
       - ODOOCLAW_CHANNELS_ODOO_WEBHOOK_PATH=/webhook/odoo
-
+      
       # Voice (STT - Optional)
       # For Whisper API fallback (if local Whisper fails or is not available)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -168,11 +153,9 @@ services:
 
 ### Voice Transcription Configuration
 
-The OdooClaw container includes **local Whisper** for voice transcription by default (no
-API key required).
+The OdooClaw container includes **local Whisper** for voice transcription by default (no API key required).
 
 If you want to use **Whisper API** instead (or as fallback):
-
 1. Set `OPENAI_API_KEY` in your environment
 2. The system will use local Whisper first, then fall back to API if needed
 
@@ -180,9 +163,7 @@ If you want to use **Whisper API** instead (or as fallback):
 
 ### Variable Management with `.env`
 
-**Yes, it is highly recommended to use an `.env` file** to manage credentials and
-environment-specific configurations (like API Keys). This avoids committing secrets to
-the repository and makes setup easier on different machines.
+**Yes, it is highly recommended to use an `.env` file** to manage credentials and environment-specific configurations (like API Keys). This avoids committing secrets to the repository and makes setup easier on different machines.
 
 In Doodba, you can add these variables to the `.docker/odoo.env` file:
 
@@ -197,21 +178,247 @@ OPENAI_API_BASE="https://api.openai.com/v1"
 ODOO_PASSWORD="your_odoo_api_key"
 ```
 
-Docker Compose will automatically load these variables, allowing references like
-`${OPENAI_API_KEY}` in your YAML file to work correctly.
+Docker Compose will automatically load these variables, allowing references like `${OPENAI_API_KEY}` in your YAML file to work correctly.
+
+
+## Reply Token Security
+
+To prevent unsolicited replies, this module uses a **single-use reply token** mechanism.
+
+### How it works
+
+When a human message triggers the OdooClaw webhook, Odoo generates a UUID token
+tied to the exact message context (`model`, `res_id`, `message_id`) and includes
+it in the webhook payload. OdooClaw returns this token in the reply payload.
+The controller validates the token before posting any message:
+
+- Token must exist, be unused, and not expired
+- `model` and `res_id` must match the original message context
+- Token is consumed on first use (single-use)
+
+This ensures OdooClaw can only post in the chatter of a record where a human
+actually asked something, preventing any unsolicited write.
+
+### Configuration
+
+| System Parameter | Default | Description |
+|---|---|---|
+| `odooclaw.reply_token_ttl` | `300` | Token lifetime in seconds |
+
+To adjust the TTL:
+
+1. Go to **Settings → Technical → System Parameters**
+2. Set `odooclaw.reply_token_ttl` to the desired value in seconds
+
+### Cleanup
+
+A scheduled action runs hourly to purge expired and consumed tokens:
+**Settings → Technical → Scheduled Actions → OdooClaw: Clean up expired reply tokens**
 
 ## Installation
 
 1. Make sure you have the base `mail` module installed.
 2. Install `mail_bot_odooclaw`.
-3. The module will automatically create a bot user named **OdooClaw** and the necessary
-   system parameter.
+3. The module will automatically create a bot user named **OdooClaw** and the necessary system parameter.
 
 ## Bot User
 
 The module automatically creates a bot user:
-
 - **Login**: `odooclaw_bot`
 - **Name**: OdooClaw
 
 This user is used to post messages on behalf of the AI assistant.
+
+## Delegated Odoo Permissions
+
+MCP operations received from Odoo Discuss execute with the native ACLs, record
+rules, and company access of the requesting Odoo user.
+
+- The trusted Discuss message context always overrides model-generated
+  `sender_id`, `company_id`, and `allowed_company_ids` values.
+- Only the generated `odooclaw_bot`, users in **OdooClaw Delegated RPC**, or
+  **Administration / Settings** users may call `/odooclaw/call_kw_as_user`.
+- The delegated target must be an active Odoo user and cannot be the Odoo
+  superuser.
+- The generated `odooclaw_bot` user remains authorized on existing and new
+  installations.
+
+For production, configure `ODOO_USERNAME` with a dedicated technical user in
+the **OdooClaw Delegated RPC** group instead of a general-purpose administrator.
+
+## Proactive assistance — one module per area
+
+The bot can open a private chat when a user lands on a screen where it has
+something useful to say. **It is off by default.**
+
+The base module (`mail_bot_odooclaw`) depends only on `mail`: it is the engine
+(area model, routes, audience). Each functional area ships in its own module, so
+an installation only pays for the areas it uses and an area whose module is
+absent simply stays silent.
+
+| Module | Depends on | Ships |
+|--------|-----------|-------|
+| `mail_bot_odooclaw` | `mail` | Engine: area model, routes, audience |
+| `mail_bot_odooclaw_account` | `+ account` | Accounting |
+| `mail_bot_odooclaw_sale` | `+ sale_management` | Sales |
+| `mail_bot_odooclaw_crm` | `+ crm` | CRM |
+| `mail_bot_odooclaw_helpdesk` | `+ helpdesk_mgmt` | Helpdesk |
+| `mail_bot_odooclaw_purchase` | `+ purchase` | Purchase |
+| `mail_bot_odooclaw_stock` | `+ stock` | Inventory |
+| `mail_bot_odooclaw_hr` | `+ hr_holidays` | Human resources |
+| `mail_bot_odooclaw_expense` | `+ hr_expense` | Expenses |
+| `mail_bot_odooclaw_project` | `+ project` | Projects |
+| `mail_bot_odooclaw_fleet` | `+ fleet` | Fleet |
+
+CRM is a module of its own rather than part of Sales: `sale_management` does not
+depend on `crm`, so bundling them would force CRM onto every sales install.
+
+### Adding a new area — it is data, not code
+
+The `area` value is a **shared contract with the engine**, not a label: it
+travels in the payload and selects the playbook whose `Area` matches. Renaming
+it on one side only does not raise an error anywhere — it leaves the assistant
+**silently mute** for that area ("no signal above the threshold"). The canonical
+values are English (`accounting`, `sales`, `crm`, `purchases`, `inventory`,
+`hr`, `expenses`, `projects`, `fleet`); the human-readable name is a separate
+`name` field, translated through each module's `i18n/es.po`.
+
+Create a `mail.odooclaw.area` row with a `model_name` and a `signal_definition`:
+
+```xml
+<record id="area_my_area" model="mail.odooclaw.area">
+    <field name="name">My area</field>
+    <field name="area">my_area</field>
+    <field name="enabled" eval="True" />
+    <field name="model_name">my.model</field>
+    <field name="signal_definition"
+    >{"my_counter": {"model": "my.model", "domain": [["state", "=", "draft"]]}}</field>
+</record>
+```
+
+Use `noupdate="0"` so shipped defaults keep reaching existing installations; to
+customise, create a **new** row rather than editing the shipped one.
+
+The counter key must match a playbook `SignalKey` in the engine, or the signal
+can never fire. A Go test (`TestEveryShippedAreaCounterHasAPlaybook`) pins this
+per area and names the orphan counter when it breaks.
+
+For anything meaning "already passed", use the `$today` placeholder — it is
+resolved at count time, so the definition does not rot:
+
+```json
+{"overdue_tasks": {"model": "project.task",
+                   "domain": [["date_deadline", "<", "$today"]]}}
+```
+
+### Pitfalls, all of them silent
+
+Every one of these produces no error message; the counter just returns 0, or a
+number nobody can trust.
+
+1. `signal_definition` is parsed with **`json.loads`**, so inside it you write
+   JSON literals — `true`/`false`, not `True`/`False`. The `__manifest__.py` is
+   the opposite (Python `literal_eval`): there you write `True`/`False`.
+2. It sits inside XML, so `<` must be escaped as `&lt;`.
+3. A domain naming a field, a state or a module that does not exist returns
+   **0 forever**.
+4. A `store=False` field is generally **not searchable**. Measured on real
+   Odoo 18: `project.project.task_count`, the fleet odometer and
+   `hr.expense.is_editable`. The exception proves the rule:
+   `crm.lead.activity_date_deadline` is `store=False` but searchable, because it
+   is computed from the related activities.
+5. Fields you assume exist often do not. `project.project` has no `state` (it
+   is `stage_id`; closed is `stage_id.fold = true`), `project.task.user_id` does
+   not exist (it is `user_ids`), and `fleet.vehicle.driver_id` is a
+   `res.partner` — not an `hr.employee`.
+
+**Always verify a new counter in both directions**: a record that must match
+moves it, and one that must not leaves it unchanged. A counter that returns 0 is
+not proof of anything — it is also what a broken domain looks like.
+
+### Testing an area
+
+```bash
+odoo -d <db> -i <module> \
+     --test-enable --test-tags /<module> --stop-after-init --without-demo=all
+```
+
+Check the run reports a **non-zero** number of tests. Two unrelated faults both
+produce `0 tests, 0 failed, exit 0` and read exactly like a pass: `--test-tags`
+matching nothing, and (under Colima) a bind mount outside its allow-list being
+mounted as an empty directory.
+
+> **Sharing a test base class:** set `allow_inherited_tests_method = True`.
+> Odoo's loader reads `test_case_class.__dict__`, so inherited test methods are
+> invisible without it — the whole suite then reports `0 tests, 0 failed`.
+
+## Knowledge — answers from the document pages
+
+`mail_bot_odooclaw_knowledge` is a companion module, not a proactive area: it
+adds no `mail.odooclaw.area` row. It exposes `POST /odooclaw/knowledge/search`,
+which looks the query up in the `document_page` knowledge base and returns the
+matching pages with a snippet and a backend link, so an answer can cite the page
+it came from instead of inventing one.
+
+| Module | Depends on | Ships |
+|--------|-----------|-------|
+| `mail_bot_odooclaw_knowledge` | `+ document_page` | Knowledge search endpoint for the bot |
+
+The search is deliberately plain — every word of the query is looked up on its
+own in name or content, and the pages carrying more of them come first, newest
+first to break a tie — so whatever a person finds in the page list, the bot can
+find too. The
+quoted snippet is centred on the words that matched and the link is absolute,
+so the citation can be checked from wherever the answer was read. The endpoint
+is authorized through the same shared webhook security as the rest of the bot's
+routes (`mail_bot_odooclaw.controllers.security`).
+
+## Security
+
+### Threat Model
+
+The `/odooclaw/reply` and `/odooclaw/call_kw_as_user` endpoints are designed for
+internal use by the OdooClaw container only. They are **not safe for public
+exposure**. An attacker who can reach these endpoints can:
+
+- Post messages as the `odooclaw_bot` user in any channel (phishing, social
+  engineering, spam)
+- Enumerate records by probing `res_id` values
+- Execute ORM methods as delegated users (via `call_kw_as_user`)
+
+### Protection Layers
+
+The module implements two layers of protection, configured via System Parameters:
+
+1. **IP Allowlist** (`odooclaw.allowed_ips`): Comma-separated list of IP
+   addresses or CIDR networks allowed to call the endpoints. Default empty
+   (disabled — relies on token auth).
+
+2. **Shared Secret Token** (`odooclaw.reply_token`): A secret string that the
+   caller must provide in the `X-OdooClaw-Token` HTTP header. Compared in
+   constant time to prevent timing attacks. Default empty (disabled — relies on
+   IP allowlist).
+
+**Default-deny**: If neither parameter is configured, the request is rejected
+with a 401 response.
+
+### Configuration
+
+Set these values in **Settings > Technical > System Parameters**:
+
+| Key | Value | Description |
+|-----|-------|-------------|
+| `odooclaw.reply_token` | `<random-hex-string>` | Shared secret for endpoint auth |
+| `odooclaw.allowed_ips` | `192.168.1.0/24,10.0.0.0/8` | Allowed client IPs/CIDRs |
+
+Generate a token with: `openssl rand -hex 32`
+
+### Best Practices
+
+- Always configure `odooclaw.reply_token` in production.
+- Use network isolation (Docker internal network, firewall rules) as the primary
+  defense.
+- The IP allowlist does **not** honor `X-Forwarded-For` headers (deliberate:
+  otherwise an attacker can spoof the source IP).
+- Rotate the token periodically and on any suspected compromise.
+- Monitor Odoo logs for `401 Unauthorized` responses to these endpoints.
