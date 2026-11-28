@@ -1,0 +1,25 @@
+<odoo>
+    <menuitem id="menu_odooclaw_evolution_root"
+              name="OdooClaw Evolution"
+              sequence="90"/>
+    <menuitem id="menu_odooclaw_change"
+              name="Changes"
+              parent="menu_odooclaw_evolution_root"
+              action="action_odooclaw_change"
+              sequence="10"/>
+    <menuitem id="menu_odooclaw_forge"
+              name="Forge"
+              parent="menu_odooclaw_evolution_root"
+              action="action_odooclaw_forge"
+              sequence="20"/>
+    <menuitem id="menu_odooclaw_overlay"
+              name="Overlays"
+              parent="menu_odooclaw_evolution_root"
+              action="action_odooclaw_overlay"
+              sequence="30"/>
+    <menuitem id="menu_odooclaw_plan"
+              name="Plans"
+              parent="menu_odooclaw_evolution_root"
+              action="action_odooclaw_plan"
+              sequence="40"/>
+</odoo>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="odooclaw_evolution.OdooClawSystray">
+        <button class="o_odooclaw_systray btn btn-link" t-on-click="onClick" title="OdooClaw Live">
+            <i class="fa fa-magic"/> OdooClaw
+        </button>
+    </t>
+
+    <t t-name="odooclaw_evolution.OdooClawDialog">
+        <Dialog title="'OdooClaw Live'" size="'md'">
+            <div class="o_odooclaw_dialog">
+                <p class="text-muted" t-if="contextLabel">
+                    <t t-esc="contextLabel"/>
+                </p>
+                <textarea class="form-control" rows="4" placeholder="¿Qué quieres cambiar?"
+                          t-model="state.request"/>
+                <p class="text-danger mt-2" t-if="state.error" t-esc="state.error"/>
+            </div>
+            <t t-set-slot="footer">
+                <button class="btn btn-secondary" t-on-click="props.close">Cancelar</button>
+                <button class="btn btn-primary" t-on-click="openChat" t-att-disabled="state.sending">
+                    <t t-if="state.sending">Abriendo...</t>
+                    <t t-else="">Abrir chat</t>
+                </button>
+            </t>
+        </Dialog>
+    </t>
+</templates>

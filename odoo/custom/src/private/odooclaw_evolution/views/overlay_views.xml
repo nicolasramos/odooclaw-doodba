@@ -1,0 +1,146 @@
+<odoo>
+    <record id="action_odooclaw_overlay" model="ir.actions.act_window">
+        <field name="name">Overlays</field>
+        <field name="res_model">odooclaw.overlay</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_odooclaw_overlay_run" model="ir.actions.act_window">
+        <field name="name">Run overlay</field>
+        <field name="res_model">odooclaw.overlay.run</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="action_odooclaw_plan" model="ir.actions.act_window">
+        <field name="name">Plans</field>
+        <field name="res_model">odooclaw.plan</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_odooclaw_overlay_list" model="ir.ui.view">
+        <field name="name">odooclaw.overlay.list</field>
+        <field name="model">odooclaw.overlay</field>
+        <field name="arch" type="xml">
+            <list decoration-danger="mode == 'disabled'" decoration-warning="mode == 'shadow'" decoration-success="mode == 'active'">
+                <field name="name"/>
+                <field name="code"/>
+                <field name="mode"/>
+                <field name="failure_count"/>
+                <field name="max_failures"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_odooclaw_overlay_form" model="ir.ui.view">
+        <field name="name">odooclaw.overlay.form</field>
+        <field name="model">odooclaw.overlay</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="%(action_odooclaw_overlay_run)d" string="Run" type="action" class="btn-primary" context="{'default_overlay_id': id}"/>
+                    <button name="action_reset" string="Reset" type="object"/>
+                    <button name="action_open_plans" string="Plans" type="object"/>
+                    <field name="mode" widget="statusbar" statusbar_visible="shadow,active,disabled"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="code"/>
+                            <field name="endpoint"/>
+                            <field name="user_id"/>
+                        </group>
+                        <group>
+                            <field name="active"/>
+                            <field name="max_failures"/>
+                            <field name="allow_automations"/>
+                            <field name="failure_count"/>
+                        </group>
+                    </group>
+                    <group string="Last error">
+                        <field name="last_error" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_odooclaw_overlay_search" model="ir.ui.view">
+        <field name="name">odooclaw.overlay.search</field>
+        <field name="model">odooclaw.overlay</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="code"/>
+                <filter name="active" string="Active" domain="[('mode', '=', 'active')]"/>
+                <filter name="shadow" string="Shadow" domain="[('mode', '=', 'shadow')]"/>
+                <filter name="disabled" string="Disabled" domain="[('mode', '=', 'disabled')]"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_odooclaw_overlay_run_form" model="ir.ui.view">
+        <field name="name">odooclaw.overlay.run.form</field>
+        <field name="model">odooclaw.overlay.run</field>
+        <field name="arch" type="xml">
+            <form>
+                <group>
+                    <field name="overlay_id" readonly="1"/>
+                    <field name="model"/>
+                    <field name="res_ids"/>
+                    <field name="params" widget="ace" options="{'mode': 'json'}"/>
+                    <field name="shadow"/>
+                </group>
+                <footer>
+                    <button name="action_run" string="Run" type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_odooclaw_plan_list" model="ir.ui.view">
+        <field name="name">odooclaw.plan.list</field>
+        <field name="model">odooclaw.plan</field>
+        <field name="arch" type="xml">
+            <list decoration-danger="state in ('failed', 'rejected')" decoration-success="state == 'applied'" decoration-warning="state == 'shadow'">
+                <field name="create_date"/>
+                <field name="overlay_id"/>
+                <field name="state"/>
+                <field name="user_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_odooclaw_plan_form" model="ir.ui.view">
+        <field name="name">odooclaw.plan.form</field>
+        <field name="model">odooclaw.plan</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="overlay_id"/>
+                            <field name="state"/>
+                            <field name="user_id"/>
+                            <field name="company_id"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Request">
+                            <field name="request" widget="ace" options="{'mode': 'json'}"/>
+                        </page>
+                        <page string="Plan">
+                            <field name="plan" widget="ace" options="{'mode': 'json'}"/>
+                        </page>
+                        <page string="Result">
+                            <field name="result"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+</odoo>

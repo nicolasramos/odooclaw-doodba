@@ -1,0 +1,76 @@
+<odoo>
+    <record id="view_odooclaw_forge_list" model="ir.ui.view">
+        <field name="name">odooclaw.forge.list</field>
+        <field name="model">odooclaw.forge</field>
+        <field name="arch" type="xml">
+            <list decoration-muted="state == 'removed'" decoration-success="state == 'installed'">
+                <field name="name"/>
+                <field name="module_name"/>
+                <field name="model_name"/>
+                <field name="state"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_odooclaw_forge_form" model="ir.ui.view">
+        <field name="name">odooclaw.forge.form</field>
+        <field name="model">odooclaw.forge</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_generate" string="Generate" type="object" class="btn-primary" invisible="state != 'draft'"/>
+                    <button name="action_check" string="Check" type="object" invisible="state not in ('generated', 'validated')"/>
+                    <button name="action_install" string="Install" type="object" class="btn-primary" invisible="state != 'validated'"/>
+                    <button name="action_uninstall" string="Uninstall" type="object" invisible="state != 'installed'"/>
+                    <button name="action_remove_files" string="Remove files" type="object" invisible="state != 'rolled_back'" confirm="Remove the generated files from disk?"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,generated,validated,installed,rolled_back"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="module_name"/>
+                            <field name="model_name"/>
+                            <field name="workspace"/>
+                        </group>
+                        <group>
+                            <field name="module_path"/>
+                            <field name="state"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Description">
+                            <field name="description"/>
+                        </page>
+                        <page string="Log">
+                            <field name="log"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_odooclaw_forge_search" model="ir.ui.view">
+        <field name="name">odooclaw.forge.search</field>
+        <field name="model">odooclaw.forge</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="module_name"/>
+                <field name="model_name"/>
+                <filter name="installed" string="Installed" domain="[('state', '=', 'installed')]"/>
+                <filter name="generated" string="Generated" domain="[('state', '=', 'generated')]"/>
+                <group expand="0" string="Group by">
+                    <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_odooclaw_forge" model="ir.actions.act_window">
+        <field name="name">Forge</field>
+        <field name="res_model">odooclaw.forge</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

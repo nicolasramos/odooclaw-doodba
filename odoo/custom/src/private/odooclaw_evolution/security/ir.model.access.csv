@@ -1,0 +1,6 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_odooclaw_change_user,odooclaw.change user,model_odooclaw_change,group_odooclaw_evolution_user,1,1,1,1
+access_odooclaw_forge_user,odooclaw.forge user,model_odooclaw_forge,group_odooclaw_evolution_user,1,1,1,1
+access_odooclaw_overlay_user,odooclaw.overlay user,model_odooclaw_overlay,group_odooclaw_evolution_user,1,1,1,1
+access_odooclaw_plan_user,odooclaw.plan user,model_odooclaw_plan,group_odooclaw_evolution_user,1,1,1,1
+access_odooclaw_overlay_run_user,odooclaw.overlay.run user,model_odooclaw_overlay_run,group_odooclaw_evolution_user,1,1,1,1
