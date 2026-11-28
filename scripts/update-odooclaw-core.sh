@@ -45,6 +45,8 @@ git subtree split \
 # belong in this deployment repository.
 FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --tree-filter '
 rm -rf build
+find . -name "._*" -type f -delete
+find . -name "._*" -type d -prune -exec rm -rf {} +
 python3 - <<"PY"
 from pathlib import Path
 import re

@@ -48,3 +48,11 @@ Manual copies hide where changes came from and make future updates harder to rev
 Project-specific runtime files can still live in this repo. For example,
 `odooclaw/config/config.json` is intentionally preserved here and is not part of the
 upstream core subtree.
+
+## Network mounts
+
+Run the update from a checkout on a local disk. Upstream history carries macOS
+AppleDouble files (`._*`); some network mounts refuse to create them and the
+subtree split fails mid-way. The sanitizer drops them from the result, but the
+history walk still has to check those commits out.
+
