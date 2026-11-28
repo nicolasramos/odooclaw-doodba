@@ -152,7 +152,9 @@ class OdooClawEvolutionApi(http.Controller):
             existing = Change.search([
                 ('artifact_hash', '=', signature),
                 ('kind', '=', kwargs.get('kind') or 'field'),
+                ('level', '=', kwargs.get('level') or 'n1'),
                 ('target_model', '=', kwargs.get('target_model') or ''),
+                ('target_module', '=', kwargs.get('target_module') or ''),
                 ('status', 'in', ('draft', 'validated')),
             ], limit=1, order='id desc')
             if existing:
@@ -200,12 +202,30 @@ class OdooClawEvolutionApi(http.Controller):
         if not change:
             return {'error': 'not_found'}
         if action == 'apply':
-            if change.status == 'draft':
-                change.action_validate()
-            change.action_apply()
+            try:
+                if change.status == 'draft':
+                    change.action_validate()
+                change.action_apply()
+            except Exception as error:  # noqa: BLE001 - the model must see why
+                return {
+                    'id': change.id,
+                    'reference': change.reference,
+                    'status': change.status,
+                    'apply_error': 'apply_failed',
+                    'message': str(error),
+                }
             return {'id': change.id, 'status': change.status}
         if action == 'rollback':
-            change.action_rollback()
+            try:
+                change.action_rollback()
+            except Exception as error:  # noqa: BLE001 - the model must see why
+                return {
+                    'id': change.id,
+                    'reference': change.reference,
+                    'status': change.status,
+                    'apply_error': 'rollback_failed',
+                    'message': str(error),
+                }
             return {'id': change.id, 'status': change.status}
         if action == 'detail':
             return {
