@@ -1,3 +1,4 @@
+import ast
 import json
 
 from odoo.exceptions import UserError, ValidationError
@@ -217,3 +218,59 @@ class TestOdooClawChange(TransactionCase):
         )
         change.action_validate()
         self.assertEqual(change.status, "validated")
+
+    def _module_payload(self, files_extra=None):
+        files = {
+            '__manifest__.py': (
+                "{'name': 'QA', 'version': '18.0.1.0.0', "
+                "'depends': ['base'], 'installable': True}"
+            ),
+            '__init__.py': 'from . import models\n',
+            'models/__init__.py': 'from . import thing\n',
+            'models/thing.py': (
+                'from odoo import fields, models\n\n\n'
+                'class Thing(models.Model):\n'
+                "    _name = 'oc.qa.acl'\n"
+                "    _description = 'QA'\n\n"
+                "    name = fields.Char(help='Name.')\n"
+            ),
+        }
+        if files_extra:
+            files.update(files_extra)
+        return {'module': 'oc_qa_acl', 'files': files}
+
+    def test_module_acl_is_generated(self):
+        # A model nobody can read is dead on arrival: the generator writes its
+        # access rules when the module does not ship a CSV.
+        change = self._change('module', self._module_payload(), level='n2')
+        normalized = change._ensure_module_acl(change._parse_payload())
+        csv = normalized['files']['security/ir.model.access.csv']
+        self.assertIn('access_oc_qa_acl_user', csv)
+        self.assertIn('model_oc_qa_acl', csv)
+        manifest = ast.literal_eval(normalized['files']['__manifest__.py'])
+        self.assertIn('security/ir.model.access.csv', manifest['data'])
+
+    def test_module_keeps_its_own_acl(self):
+        own = 'id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink\n'
+        change = self._change(
+            'module',
+            self._module_payload({'security/ir.model.access.csv': own}),
+            level='n2',
+        )
+        normalized = change._ensure_module_acl(change._parse_payload())
+        self.assertEqual(normalized['files']['security/ir.model.access.csv'], own)
+
+    def test_module_without_models_needs_no_acl(self):
+        payload = {
+            'module': 'oc_qa_no_model',
+            'files': {
+                '__manifest__.py': (
+                    "{'name': 'QA', 'version': '18.0.1.0.0', "
+                    "'depends': ['base'], 'installable': True}"
+                ),
+                '__init__.py': '',
+            },
+        }
+        change = self._change('module', payload, level='n2')
+        normalized = change._ensure_module_acl(change._parse_payload())
+        self.assertNotIn('security/ir.model.access.csv', normalized['files'])

@@ -1,4 +1,5 @@
 import ast
+import pprint
 import hashlib
 import json
 
@@ -125,11 +126,19 @@ class OdooClawChange(models.Model):
 
     def action_validate(self):
         for change in self:
-            change._validate_payload(change._parse_payload())
-            change.write({
+            payload = change._parse_payload()
+            change._validate_payload(payload)
+            vals = {
                 'status': 'validated',
                 'approved_by': self.env.user.id,
-            })
+            }
+            if change.kind == 'module':
+                normalized = change._ensure_module_acl(payload)
+                if normalized is not payload:
+                    vals['payload'] = json.dumps(
+                        normalized, ensure_ascii=False, sort_keys=True
+                    )
+            change.write(vals)
         return True
 
     def _validate_level(self):
@@ -260,6 +269,83 @@ class OdooClawChange(models.Model):
         for key in ('parent_xmlid', 'action_xmlid'):
             if payload.get(key) and not self.env.ref(payload[key], raise_if_not_found=False):
                 raise ValidationError(_('Unknown xmlid in %(key)s: %(value)s', key=key, value=payload[key]))
+
+
+    def _module_new_models(self, files):
+        """Models the module actually creates, so their access rules are not forgotten.
+
+        A class with ``_inherit`` only extends an existing model and inherits its
+        ACL. A class with ``_name`` has its own table and starts with no access at
+        all: a model nobody can read is dead on arrival, so the generator grants
+        internal users the four operations unless the module ships its own CSV.
+        """
+        names = []
+        for rel, content in (files or {}).items():
+            if not rel.startswith('models/') or not rel.endswith('.py'):
+                continue
+            try:
+                tree = ast.parse(content)
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                declared = None
+                inherits = []
+                for stmt in node.body:
+                    if not (
+                        isinstance(stmt, ast.Assign)
+                        and len(stmt.targets) == 1
+                        and isinstance(stmt.targets[0], ast.Name)
+                    ):
+                        continue
+                    key = stmt.targets[0].id
+                    value = stmt.value
+                    if key == '_name' and isinstance(value, ast.Constant) and isinstance(value.value, str):
+                        declared = value.value
+                    elif key == '_inherit':
+                        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                            inherits.append(value.value)
+                        elif isinstance(value, (ast.List, ast.Tuple)):
+                            inherits.extend(
+                                el.value
+                                for el in value.elts
+                                if isinstance(el, ast.Constant) and isinstance(el.value, str)
+                            )
+                if declared and declared not in inherits and declared not in names:
+                    names.append(declared)
+        return names
+
+    def _acl_csv(self, models):
+        rows = ['id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink']
+        for model in sorted(models):
+            key = model.replace('.', '_')
+            rows.append(
+                'access_%s_user,access %s user,model_%s,base.group_user,1,1,1,1'
+                % (key, model, key)
+            )
+        return '\n'.join(rows) + '\n'
+
+    def _ensure_module_acl(self, payload):
+        files = payload.get('files') or {}
+        acl_rel = 'security/ir.model.access.csv'
+        models = self._module_new_models(files)
+        if not models or acl_rel in files:
+            return payload
+        files = dict(files)
+        files[acl_rel] = self._acl_csv(models)
+        try:
+            manifest = ast.literal_eval(files['__manifest__.py'])
+        except (ValueError, SyntaxError):
+            return payload
+        data = list(manifest.get('data') or [])
+        if acl_rel not in data:
+            data.append(acl_rel)
+        manifest['data'] = data
+        files['__manifest__.py'] = pprint.pformat(manifest, width=100, sort_dicts=False) + '\n'
+        payload = dict(payload)
+        payload['files'] = files
+        return payload
 
     def _validate_module(self, payload):
         module = (payload.get('module') or '').strip()
